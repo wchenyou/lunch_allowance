@@ -7,7 +7,8 @@ import { createSupabaseAdminClient } from "./supabase/admin";
 import { Allocation, Database, Employee, EmployeeInput, Receipt, ReceiptInput } from "./types";
 
 const ROOT = process.cwd();
-const LOCAL_DB_PATH = path.join(process.env.VERCEL ? "/tmp/lunch-subsidy-admin" : path.join(ROOT, "data"), "local-db.json");
+const LOCAL_DB_PATH = path.join(process.env.VERCEL ? "/tmp/lunch_allowance" : path.join(ROOT, "data"), "local-db.json");
+const LEGACY_LOCAL_DB_PATH = path.join("/tmp/lunch-subsidy-admin", "local-db.json");
 const now = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${randomUUID().slice(0, 8)}${Date.now().toString(36)}`;
 
@@ -179,7 +180,12 @@ async function markReceiptsSupabase(receiptIds: string[], status: string) {
 
 async function readLocal(): Promise<Database> {
   try {
-    const raw = await fs.readFile(LOCAL_DB_PATH, "utf8");
+    const raw = await fs.readFile(LOCAL_DB_PATH, "utf8").catch(async (error: NodeJS.ErrnoException) => {
+      if (process.env.VERCEL && error.code === "ENOENT") {
+        return fs.readFile(LEGACY_LOCAL_DB_PATH, "utf8");
+      }
+      throw error;
+    });
     const parsed = JSON.parse(raw) as Database;
     return {
       employees: parsed.employees ?? [],

@@ -121,8 +121,8 @@ export default function HomePage() {
         <div className="brand">
           <div className="brand-mark">午</div>
           <div>
-            <strong>Lunch Admin</strong>
-            <span>Subsidy MVP</span>
+            <strong>Lunch Allowance</strong>
+            <span>午餐補助系統</span>
           </div>
         </div>
         <nav>

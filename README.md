@@ -1,8 +1,8 @@
-# Lunch Subsidy Admin
+# Lunch Allowance
 
-午餐補助行政後台 MVP。公司每日每人午餐補助上限 150 元，少不補發；支援單張收據多人手動分攤、付款人追蹤、請款狀態與 CSV 匯出。
+午餐補助系統 MVP。公司每日每人午餐補助上限 150 元，少不補發；支援單張收據多人手動分攤、付款人追蹤、請款狀態與 CSV 匯出。
 
-Supabase 升級第一階段已開始：`supabase/migrations/20260508093000_initial_lunch_subsidy.sql` 定義正式資料庫、Storage bucket、RLS policy；現有 Google Sheets / local JSON API 先保留，避免破壞 production 可用版本。
+Supabase 升級第一階段已開始：`supabase/migrations/20260508093000_initial_lunch_subsidy.sql` 定義正式資料庫、Storage bucket、RLS policy；migration 檔名保留既有名稱以避免破壞已套用 schema。現有 Google Sheets / local JSON API 先保留，避免破壞 production 可用版本。
 
 ## 功能
 
@@ -22,7 +22,7 @@ Supabase 升級第一階段已開始：`supabase/migrations/20260508093000_initi
 ## 本地啟動
 
 ```bash
-cd /Users/myopenclaw/.openclaw/workspace/lunch-subsidy-admin
+cd /Users/myopenclaw/.openclaw/workspace/lunch_allowance
 npm install
 cp .env.example .env
 npm run dev
@@ -100,7 +100,7 @@ Storage bucket:
 ## Vercel 部署
 
 1. 將此專案推到 GitHub。
-2. 在 Vercel 新增 Project，Root Directory 設為 `lunch-subsidy-admin`。
+2. 在 Vercel 新增 Project，Root Directory 設為 `lunch_allowance`。
 3. 設定 Environment Variables：至少 `ADMIN_PASSWORD`，正式使用 Google Sheets 時加上三個 Google 變數。
 4. Build Command 使用預設 `npm run build`。
 5. 不需要額外資料庫；Google Sheet 即為正式資料來源。

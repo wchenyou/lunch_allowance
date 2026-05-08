@@ -31,7 +31,7 @@ export default function LoginPage() {
         <div className="login-icon">
           <Lock size={18} />
         </div>
-        <h1>午餐補助後台</h1>
+        <h1>午餐補助系統</h1>
         <p>輸入管理密碼後開始登記收據與結算請款。</p>
         <label>
           管理密碼

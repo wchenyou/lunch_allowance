@@ -8,7 +8,7 @@ export default function AdminPeoplePage() {
         <div className="brand">
           <div className="brand-mark">午</div>
           <div>
-            <strong>Lunch Admin</strong>
+            <strong>Lunch Allowance</strong>
             <span>Supabase phase 1</span>
           </div>
         </div>
