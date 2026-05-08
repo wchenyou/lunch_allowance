@@ -1,0 +1,36 @@
+# dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+*.tsbuildinfo
+
+# local environment
+.env*
+!.env.example
+
+# Vercel
+.vercel/
+
+# local data and databases
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# secrets and credentials
+*.pem
+*.key
+*.p8
+*secret*
+*credential*
+*credentials*
