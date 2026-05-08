@@ -586,6 +586,14 @@ td {
   gap: 10px;
 }
 
+.password-panel {
+  margin-top: 16px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
 .form-message {
   color: var(--soft);
   font-size: 13px;

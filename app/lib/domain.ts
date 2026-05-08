@@ -1,7 +1,9 @@
 export const DAILY_SUBSIDY_LIMIT = 150;
 export const RECEIPT_IMAGE_BUCKET = "receipt-images";
 
-export type AppRole = "admin" | "hr" | "manager" | "employee";
+export type LegacyAppRole = "admin" | "hr" | "manager" | "employee";
+export type AppRole = "super_admin" | "department_admin" | "employee";
+export type ProfileRole = LegacyAppRole | AppRole;
 export type ReceiptStatus = "draft" | "submitted" | "approved" | "rejected" | "settled" | "void";
 export type ClaimStatus = "claimed" | "approved" | "rejected" | "reimbursed";
 export type SettlementStatus = "draft" | "locked" | "paid" | "void";
@@ -22,7 +24,10 @@ export type Profile = {
   email: string | null;
   phone: string | null;
   department_id: string | null;
-  role: AppRole;
+  role: LegacyAppRole;
+  app_role?: AppRole;
+  password_hash?: string | null;
+  password_updated_at?: string | null;
   active: boolean;
   onboarded_at: string | null;
   created_at: string;

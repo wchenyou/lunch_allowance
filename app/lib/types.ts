@@ -5,6 +5,8 @@ export type Employee = {
   name: string;
   active: boolean;
   note: string;
+  department_id?: string | null;
+  department_name?: string | null;
   created_at: string;
   updated_at: string;
 };

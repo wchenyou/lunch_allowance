@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, CheckCircle2, ClipboardList, ReceiptText, Upload, UsersRound } from "lucide-react";
+import { Camera, CheckCircle2, ClipboardList, KeyRound, ReceiptText, Upload, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { DAILY_SUBSIDY_LIMIT } from "@/app/lib/domain";
@@ -20,6 +20,7 @@ export default function EmployeeReceiptPage() {
     note: ""
   });
   const [message, setMessage] = useState("");
+  const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "" });
   const activeEmployees = useMemo(() => employees.filter((employee) => employee.active), [employees]);
 
   useEffect(() => {
@@ -57,6 +58,23 @@ export default function EmployeeReceiptPage() {
     }
     setMessage("已送出給行政審核");
     setForm((current) => ({ ...current, merchant: "", receipt_no: "", total_amount: "", claim_amount: "", note: "" }));
+  }
+
+  async function changePassword(event: FormEvent) {
+    event.preventDefault();
+    setMessage("");
+    const response = await fetch("/api/employee/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(passwordForm)
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      setMessage(body.error || "密碼更新失敗");
+      return;
+    }
+    setPasswordForm({ current_password: "", next_password: "" });
+    setMessage("密碼已更新");
   }
 
   return (
@@ -160,6 +178,34 @@ export default function EmployeeReceiptPage() {
           <button className="primary-btn wide">
             <ReceiptText size={17} />
             送出給行政審核
+          </button>
+        </form>
+
+        <form className="mobile-form password-panel" onSubmit={changePassword}>
+          <div className="mobile-section-title">
+            <KeyRound size={16} />
+            <span>更改登入密碼</span>
+          </div>
+          <label>
+            目前密碼
+            <input
+              type="password"
+              value={passwordForm.current_password}
+              onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })}
+            />
+          </label>
+          <label>
+            新密碼
+            <input
+              type="password"
+              minLength={8}
+              value={passwordForm.next_password}
+              onChange={(event) => setPasswordForm({ ...passwordForm, next_password: event.target.value })}
+              required
+            />
+          </label>
+          <button className="ghost-btn wide" type="submit">
+            更新密碼
           </button>
         </form>
 

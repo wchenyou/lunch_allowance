@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login"];
-const AUTH_ENFORCEMENT_ENABLED = false;
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/options", "/api/supabase/health"];
+const ROLE_COOKIE = "lunch_allowance_session";
+const AUTH_ENFORCEMENT_ENABLED = true;
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -9,14 +10,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Future auth: keep the admin_session cookie flow available, but Aaron wants
-  // production to be usable without login for now. Flip this flag when role
-  // checks for employee/admin surfaces are ready.
   if (!AUTH_ENFORCEMENT_ENABLED) {
     return NextResponse.next();
   }
 
-  const hasSession = request.cookies.get("admin_session")?.value === "ok";
+  const hasSession = Boolean(request.cookies.get(ROLE_COOKIE)?.value || request.cookies.get("admin_session")?.value === "ok");
   if (!hasSession) {
     if (pathname.startsWith("/api")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     return NextResponse.redirect(new URL("/login", request.url));

@@ -13,6 +13,9 @@ out/
 # Vercel
 .vercel/
 
+# Supabase local CLI state
+supabase/.temp/
+
 # local data and databases
 data/
 *.db

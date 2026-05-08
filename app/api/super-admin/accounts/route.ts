@@ -1,47 +1,47 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/app/lib/api/guards";
+import { toLegacyRole, appRoles } from "@/app/lib/auth/roles";
 import { hashPassword } from "@/app/lib/auth/password";
-import { appRoles, toLegacyRole } from "@/app/lib/auth/roles";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
+
+export async function GET() {
+  const guard = await requireSession(["super_admin"]);
+  if (guard.response) return guard.response;
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, employee_no, display_name, email, phone, department_id, role, app_role, active, password_updated_at, created_at, updated_at")
+    .order("display_name", { ascending: true });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ profiles: data ?? [] });
+}
 
 export async function POST(request: Request) {
   const guard = await requireSession(["super_admin"]);
   if (guard.response) return guard.response;
-
   const input = await request.json();
   const displayName = String(input.display_name ?? "").trim();
   const appRole = appRoles.includes(input.app_role) ? input.app_role : "employee";
+  if (!displayName) return NextResponse.json({ error: "display_name is required" }, { status: 400 });
 
-  if (!displayName) {
-    return NextResponse.json({ error: "display_name is required" }, { status: 400 });
-  }
-
-  let supabase;
-  try {
-    supabase = createSupabaseAdminClient();
-  } catch {
-    return NextResponse.json({ error: "Supabase service role env is required to create accounts" }, { status: 501 });
-  }
-
+  const supabase = createSupabaseAdminClient();
   const passwordHash = input.password ? await hashPassword(String(input.password)) : undefined;
-  const { data, error } = await supabase.from("profiles").upsert({
+  const payload = {
     id: input.id || undefined,
-    email: input.email ? String(input.email).trim().toLowerCase() : null,
+    employee_no: input.employee_no || null,
     display_name: displayName,
-    employee_no: input.employee_no ?? null,
-    department_id: input.department_id ?? null,
+    email: input.email || null,
+    phone: input.phone || null,
+    department_id: input.department_id || null,
     role: toLegacyRole(appRole),
     app_role: appRole,
     active: input.active ?? true,
     password_hash: passwordHash,
     password_updated_at: input.password ? new Date().toISOString() : undefined,
     onboarded_at: new Date().toISOString()
-  }).select("id, email, display_name, role, app_role").single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
-  }
-
+  };
+  const { data, error } = await supabase.from("profiles").upsert(payload).select("id, display_name, app_role, department_id, active").single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   if (passwordHash) {
     const { error: credentialError } = await supabase.from("profile_credentials").upsert({
       profile_id: data.id,
@@ -51,6 +51,5 @@ export async function POST(request: Request) {
     });
     if (credentialError) return NextResponse.json({ error: credentialError.message }, { status: 400 });
   }
-
-  return NextResponse.json(data);
+  return NextResponse.json({ profile: data });
 }
