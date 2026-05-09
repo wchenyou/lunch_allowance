@@ -12,7 +12,12 @@ export type AppSession = {
 };
 
 function secret() {
-  return process.env.APP_SESSION_SECRET || process.env.ADMIN_PASSWORD || process.env.SUPABASE_JWT_SECRET || "local-dev-session-secret";
+  const value = process.env.APP_SESSION_SECRET || process.env.ADMIN_PASSWORD || process.env.SUPABASE_JWT_SECRET;
+  if (value) return value;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing APP_SESSION_SECRET, ADMIN_PASSWORD, or SUPABASE_JWT_SECRET");
+  }
+  return "local-dev-session-secret";
 }
 
 function sign(payload: string) {

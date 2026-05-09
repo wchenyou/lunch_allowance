@@ -34,6 +34,7 @@ npm run dev
 
 ```bash
 ADMIN_PASSWORD=change-this-admin-password
+APP_SESSION_SECRET=change-this-random-session-secret
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
@@ -47,6 +48,8 @@ SEED_EMPLOYEES=Aaron
 ```
 
 Supabase 變數中，`SUPABASE_SERVICE_ROLE_KEY` 只能放在 server-side / Vercel server environment，不可出現在 client bundle。管理端新增帳號若使用 Supabase Auth Admin API，必須由 server route 以 service role 執行。
+
+Production 必須設定 `APP_SESSION_SECRET`、`ADMIN_PASSWORD` 或 `SUPABASE_JWT_SECRET` 其中之一作為 signed cookie secret；建議使用獨立的 `APP_SESSION_SECRET`。
 
 只有 `GOOGLE_SHEETS_SPREADSHEET_ID`、`GOOGLE_SERVICE_ACCOUNT_EMAIL`、`GOOGLE_PRIVATE_KEY` 三個值都存在時，系統才會使用 Google Sheets。缺任一值時會使用本地 JSON fallback，因此 build 不會因 Google 憑證未就緒而失敗。
 

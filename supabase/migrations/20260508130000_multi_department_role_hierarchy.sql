@@ -83,7 +83,7 @@ returns public.app_role_v2
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
 as $$
   select app_role from public.profiles where id = auth.uid() and active = true and login_disabled_at is null
 $$;
@@ -93,7 +93,7 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
 as $$
   select coalesce(private.current_app_role() = 'super_admin'::public.app_role_v2, false)
 $$;
@@ -103,7 +103,7 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
 as $$
   select coalesce(private.is_super_admin(), false)
     or exists (
@@ -119,7 +119,7 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
 as $$
   select coalesce(private.is_super_admin(), false)
     or exists (
@@ -143,9 +143,10 @@ alter table public.profile_credentials enable row level security;
 
 grant select, insert, update, delete on
   public.department_admin_departments,
-  public.department_admin_employees,
-  public.profile_credentials
+  public.department_admin_employees
 to authenticated;
+grant select, insert, update, delete on public.profile_credentials to service_role;
+revoke all on public.profile_credentials from anon, authenticated;
 grant execute on function private.current_app_role() to authenticated;
 grant execute on function private.is_super_admin() to authenticated;
 grant execute on function private.is_department_admin_for_department(uuid) to authenticated;
@@ -167,13 +168,6 @@ create policy "department admin employees super admin" on public.department_admi
   for all to authenticated using (private.is_super_admin()) with check (private.is_super_admin());
 create policy "department admin employees own read" on public.department_admin_employees
   for select to authenticated using (admin_profile_id = auth.uid());
-create policy "profile credentials self read" on public.profile_credentials
-  for select to authenticated using (profile_id = auth.uid());
-create policy "profile credentials self update" on public.profile_credentials
-  for update to authenticated using (profile_id = auth.uid())
-  with check (profile_id = auth.uid());
-create policy "profile credentials super admin manage" on public.profile_credentials
-  for all to authenticated using (private.is_super_admin()) with check (private.is_super_admin());
 
 drop policy if exists "departments readable by signed in users" on public.departments;
 drop policy if exists "departments managed by adminish" on public.departments;
