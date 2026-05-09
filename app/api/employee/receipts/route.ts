@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import { requireSession } from "@/app/lib/api/guards";
 import { upsertReceipt } from "@/app/lib/storage";
 
 export async function POST(request: Request) {
+  const guard = await requireSession(["employee", "department_admin", "super_admin"]);
+  if (guard.response) return guard.response;
   const input = await request.json();
   const profileId = String(input.profile_id ?? input.payer_employee_id ?? "").trim();
   const date = String(input.date ?? "").trim();
@@ -12,6 +15,9 @@ export async function POST(request: Request) {
 
   if (!profileId || !date || !Number.isFinite(totalAmount) || totalAmount <= 0) {
     return NextResponse.json({ error: "profile_id, date, and total_amount are required" }, { status: 400 });
+  }
+  if (guard.session!.role === "employee" && profileId !== guard.session!.profileId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const invalidAllocation = allocations.some((allocation: any) => !allocation.employee_id || Number(allocation.amount) <= 0);

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { requireSession } from "@/app/lib/api/guards";
 import { RECEIPT_IMAGE_BUCKET } from "@/app/lib/domain";
 import { hasSupabaseConfig } from "@/app/lib/storage";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
@@ -13,6 +14,8 @@ const safeExtension = (contentType: string) => {
 };
 
 export async function POST(request: Request) {
+  const guard = await requireSession(["employee", "department_admin", "super_admin"]);
+  if (guard.response) return guard.response;
   if (!hasSupabaseConfig()) {
     return NextResponse.json({ error: "Supabase storage is not configured" }, { status: 501 });
   }
@@ -24,6 +27,9 @@ export async function POST(request: Request) {
 
   if (!profileId) {
     return NextResponse.json({ error: "profile_id is required" }, { status: 400 });
+  }
+  if (guard.session!.role === "employee" && profileId !== guard.session!.profileId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const objectPath = `${profileId}/${receiptId}/${randomUUID()}.${safeExtension(contentType)}`;

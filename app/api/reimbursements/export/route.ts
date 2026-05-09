@@ -1,9 +1,12 @@
+import { requireSession } from "@/app/lib/api/guards";
 import { buildReimbursementReport } from "@/app/lib/calculations";
 import { readDb } from "@/app/lib/storage";
 
 const csvEscape = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
 
 export async function GET(request: Request) {
+  const guard = await requireSession(["department_admin", "super_admin"]);
+  if (guard.response) return guard.response;
   const url = new URL(request.url);
   const start = url.searchParams.get("start") ?? "";
   const end = url.searchParams.get("end") ?? "";
