@@ -3,12 +3,13 @@ import { appRoles, toAppRole } from "@/app/lib/auth/roles";
 import { APP_SESSION_COOKIE, encodeSession } from "@/app/lib/auth/session";
 import { verifyPassword } from "@/app/lib/auth/password";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
-import type { AppRole } from "@/app/lib/domain";
+import type { AppRole, ProfileRole } from "@/app/lib/domain";
 
 export async function POST(request: Request) {
   const input = await request.json();
   const password = String(input.password ?? "");
   const profileId = String(input.profile_id ?? "").trim();
+  const account = String(input.account ?? input.account_name ?? input.employee_no ?? "").trim();
   const departmentId = String(input.department_id ?? "").trim();
   const intendedRole = parseIntendedRole(input.intended_role);
 
@@ -20,9 +21,17 @@ export async function POST(request: Request) {
     return loginWithProfilePassword(profileId, departmentId, password, intendedRole);
   }
 
+  if (account) {
+    return loginWithAccountPassword(account, departmentId, password, intendedRole);
+  }
+
   if (intendedRole && intendedRole !== "super_admin") {
     return NextResponse.json({ error: "此入口不接受最高管理密碼登入" }, { status: 401 });
   }
+  return loginWithAdminPassword(password);
+}
+
+function loginWithAdminPassword(password: string) {
   const expected = process.env.ADMIN_PASSWORD;
   if (!expected) {
     return NextResponse.json({ error: "ADMIN_PASSWORD is not configured" }, { status: 500 });
@@ -54,7 +63,7 @@ function parseIntendedRole(value: unknown): AppRole | null {
 }
 
 async function loginWithProfilePassword(profileId: string, departmentId: string, password: string, intendedRole: AppRole | null) {
-  if (!departmentId && intendedRole !== "super_admin") {
+  if (intendedRole === "employee" && !departmentId) {
     return NextResponse.json({ error: "請選擇部門" }, { status: 400 });
   }
 
@@ -67,16 +76,98 @@ async function loginWithProfilePassword(profileId: string, departmentId: string,
 
   let query = supabase
     .from("profiles")
-    .select("id, display_name, department_id, role, app_role, active, password_hash, login_disabled_at")
+    .select("id, employee_no, display_name, department_id, role, app_role, active, password_hash, login_disabled_at")
     .eq("id", profileId);
 
-  if (departmentId) {
+  if (departmentId && intendedRole === "employee") {
     query = query.eq("department_id", departmentId);
   }
 
   const { data: profile, error } = await query.single();
 
   if (error || !profile || !profile.active || profile.login_disabled_at) {
+    return NextResponse.json({ error: "帳號不存在或已停用" }, { status: 401 });
+  }
+
+  return finishProfileLogin(supabase, profile, password, intendedRole);
+}
+
+async function loginWithAccountPassword(account: string, departmentId: string, password: string, intendedRole: AppRole | null) {
+  if (intendedRole === "employee" && !departmentId) {
+    return NextResponse.json({ error: "請選擇部門" }, { status: 400 });
+  }
+
+  let supabase;
+  try {
+    supabase = createSupabaseAdminClient();
+  } catch {
+    if (intendedRole === "super_admin" && account.toLowerCase() === "admin") {
+      return loginWithAdminPassword(password);
+    }
+    if (account.toLowerCase() === "admin" && intendedRole) {
+      return NextResponse.json({ error: "此登入入口不接受該帳號角色" }, { status: 401 });
+    }
+    return NextResponse.json({ error: "Supabase service role env is required for account login" }, { status: 501 });
+  }
+
+  const [employeeNoResult, displayNameResult] = await Promise.all([
+    queryProfilesByAccountField(supabase, "employee_no", account, departmentId, intendedRole),
+    queryProfilesByAccountField(supabase, "display_name", account, departmentId, intendedRole)
+  ]);
+  const error = employeeNoResult.error ?? displayNameResult.error;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const profiles = [...(employeeNoResult.data ?? []), ...(displayNameResult.data ?? [])]
+    .filter((profile, index, all) => all.findIndex((candidate) => candidate.id === profile.id) === index)
+    .filter((profile) => !intendedRole || toAppRole(profile.app_role ?? profile.role) === intendedRole);
+
+  if (profiles.length !== 1) {
+    if (!profiles.length && intendedRole === "super_admin" && account.toLowerCase() === "admin") {
+      return loginWithAdminPassword(password);
+    }
+    return NextResponse.json({ error: profiles.length > 1 ? "帳號不唯一，請改用員工編號登入" : "帳號不存在或已停用" }, { status: 401 });
+  }
+
+  return finishProfileLogin(supabase, profiles[0], password, intendedRole);
+}
+
+function queryProfilesByAccountField(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  field: "employee_no" | "display_name",
+  account: string,
+  departmentId: string,
+  intendedRole: AppRole | null
+) {
+  let query = supabase
+    .from("profiles")
+    .select("id, employee_no, display_name, department_id, role, app_role, active, password_hash, login_disabled_at")
+    .eq(field, account)
+    .eq("active", true)
+    .is("login_disabled_at", null);
+
+  if (departmentId && intendedRole === "employee") {
+    query = query.eq("department_id", departmentId);
+  }
+
+  return query.limit(5);
+}
+
+async function finishProfileLogin(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  profile: {
+    id: string;
+    display_name: string;
+    department_id: string | null;
+    role: ProfileRole | null;
+    app_role?: AppRole | null;
+    active: boolean | null;
+    password_hash: string | null;
+    login_disabled_at: string | null;
+  },
+  password: string,
+  intendedRole: AppRole | null
+) {
+  if (!profile.active || profile.login_disabled_at) {
     return NextResponse.json({ error: "帳號不存在或已停用" }, { status: 401 });
   }
 

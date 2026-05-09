@@ -6,7 +6,7 @@ Supabase 升級第一階段已開始：`supabase/migrations/20260508093000_initi
 
 ## 功能
 
-- 管理密碼登入，密碼來自 `ADMIN_PASSWORD`
+- 三入口登入：員工、一般管理、最高管理皆手動輸入帳號與密碼
 - 員工新增、編輯、停用
 - 收據新增、編輯、刪除：日期、金額必填，店家、收據號碼、備註選填
 - 付款人欄位：追蹤實際墊款者，以及未請款、已請款、已結清狀態
@@ -36,9 +36,11 @@ npm run dev
 
 - `/login/employee`：員工登入，僅接受 `employee` 帳號。
 - `/login/admin`：一般管理登入，僅接受 `department_admin` 帳號。
-- `/login/super-admin`：最高管理登入，僅接受 `super_admin` 帳號或 `ADMIN_PASSWORD` 系統管理密碼。
+- `/login/super-admin`：最高管理登入，僅接受 `super_admin` 帳號。
 
-`/login` 會直接導向 `/login/employee`，不提供最高管理入口連結；登入 API 會依 `intended_role` 驗證角色，`/api/auth/options?role=employee|department_admin|super_admin` 只回傳該入口可用的登入選項。
+三個登入入口的帳號欄位皆為手動輸入，不會把帳號清單暴露給前端。帳號可使用 `employee_no` 或 `display_name`；建議最高管理帳號建立為 `employee_no=admin`、`display_name=admin`。員工登入頁會載入可登入員工所屬的部門清單，送出時以所選部門限制帳號；一般管理與最高管理不需要選部門，登入 API 會依 `intended_role` 找對應角色帳號。
+
+`/login` 會直接導向 `/login/employee`，不提供最高管理入口連結。`/api/auth/options?role=employee` 只回傳 `departments`，且部門來自可登入的 `employee` profiles；`department_admin` 與 `super_admin` options 會回空清單，不回傳員工或帳號資料。舊版 `profile_id` 登入 payload 仍保留相容；未帶帳號的 super admin 系統管理密碼登入路徑也仍保留給既有整合。
 
 ## 環境變數
 

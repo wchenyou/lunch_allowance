@@ -4,9 +4,10 @@ export const loginConfigs = {
   employee: {
     intendedRole: "employee",
     title: "員工登入",
-    description: "員工專用入口，僅顯示可登入的員工帳號。",
+    description: "員工專用入口，請選擇部門並輸入帳號。",
     icon: "employee",
-    submitLabel: "進入員工端"
+    submitLabel: "進入員工端",
+    showDepartmentSelect: true
   },
   admin: {
     intendedRole: "department_admin",
@@ -18,9 +19,8 @@ export const loginConfigs = {
   superAdmin: {
     intendedRole: "super_admin",
     title: "最高管理登入",
-    description: "最高管理權限專用入口，請使用 super_admin 帳號或系統管理密碼。",
+    description: "最高管理權限專用入口，請輸入 super_admin 帳號。",
     icon: "super-admin",
-    submitLabel: "進入最高管理後台",
-    allowPasswordOnly: true
+    submitLabel: "進入最高管理後台"
   }
 } satisfies Record<string, LoginConfig>;
