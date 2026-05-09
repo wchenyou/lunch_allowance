@@ -30,6 +30,16 @@ npm run dev
 
 開啟 `http://localhost:3000`。如果沒有設定 `ADMIN_PASSWORD`，開發環境會暫用 `admin`，正式部署請務必設定強密碼。
 
+## 登入入口
+
+系統目前拆成三個登入入口，避免員工登入頁看到或連到最高管理權限入口：
+
+- `/login/employee`：員工登入，僅接受 `employee` 帳號。
+- `/login/admin`：一般管理登入，僅接受 `department_admin` 帳號。
+- `/login/super-admin`：最高管理登入，僅接受 `super_admin` 帳號或 `ADMIN_PASSWORD` 系統管理密碼。
+
+`/login` 會直接導向 `/login/employee`，不提供最高管理入口連結；登入 API 會依 `intended_role` 驗證角色，`/api/auth/options?role=employee|department_admin|super_admin` 只回傳該入口可用的登入選項。
+
 ## 環境變數
 
 ```bash

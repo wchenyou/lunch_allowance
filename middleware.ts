@@ -17,7 +17,10 @@ export function middleware(request: NextRequest) {
   const hasSession = Boolean(request.cookies.get(ROLE_COOKIE)?.value || request.cookies.get("admin_session")?.value === "ok");
   if (!hasSession) {
     if (pathname.startsWith("/api")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    return NextResponse.redirect(new URL("/login", request.url));
+    if (pathname.startsWith("/employee")) return NextResponse.redirect(new URL("/login/employee", request.url));
+    if (pathname.startsWith("/admin")) return NextResponse.redirect(new URL("/login/admin", request.url));
+    if (pathname.startsWith("/super-admin")) return NextResponse.redirect(new URL("/login/super-admin", request.url));
+    return NextResponse.redirect(new URL("/login/employee", request.url));
   }
 
   return NextResponse.next();
