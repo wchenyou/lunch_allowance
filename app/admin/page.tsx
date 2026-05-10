@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, ClipboardList, ReceiptText, UsersRound } from "lucide-react";
+import { Building2, ClipboardList, UsersRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { Department, Profile, ReceiptRecord } from "@/app/lib/domain";
 
@@ -51,10 +51,6 @@ export default function DepartmentAdminPage() {
           <a className="nav-btn active" href="/admin">
             <ClipboardList size={16} />
             匯總
-          </a>
-          <a className="nav-btn" href="/employee">
-            <ReceiptText size={16} />
-            員工端
           </a>
         </nav>
       </aside>

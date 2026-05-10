@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, CheckCircle2, ClipboardList, KeyRound, ReceiptText, Upload, UsersRound } from "lucide-react";
+import { Camera, CheckCircle2, KeyRound, ReceiptText, Upload, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { DAILY_SUBSIDY_LIMIT } from "@/app/lib/domain";
@@ -213,10 +213,6 @@ export default function EmployeeReceiptPage() {
           <Link className="active" href="/employee">
             <Camera size={17} />
             上傳
-          </Link>
-          <Link href="/">
-            <ClipboardList size={17} />
-            紀錄
           </Link>
         </nav>
       </section>

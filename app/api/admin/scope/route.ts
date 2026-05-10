@@ -3,7 +3,7 @@ import { requireSession } from "@/app/lib/api/guards";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 
 export async function GET() {
-  const guard = await requireSession(["department_admin", "super_admin"]);
+  const guard = await requireSession(["department_admin"]);
   if (guard.response) return guard.response;
   const session = guard.session!;
   const supabase = createSupabaseAdminClient();

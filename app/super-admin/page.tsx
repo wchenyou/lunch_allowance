@@ -1,19 +1,49 @@
 "use client";
 
-import { Building2, KeyRound, ShieldCheck, UsersRound } from "lucide-react";
+import { Building2, Edit3, KeyRound, ShieldCheck, Trash2, UsersRound } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { visibleDepartments } from "@/app/lib/departments";
 import type { AppRole, Department, Profile } from "@/app/lib/domain";
 
 type ScopeRow = { admin_profile_id: string; department_id?: string; employee_profile_id?: string };
+type DepartmentForm = { id: string; code: string; name: string; active: boolean };
+type AccountForm = {
+  id: string;
+  employee_no: string;
+  display_name: string;
+  email: string;
+  phone: string;
+  department_id: string;
+  app_role: AppRole;
+  active: boolean;
+  password: string;
+  department_ids: string[];
+};
+
+const emptyDepartmentForm: DepartmentForm = { id: "", code: "", name: "", active: true };
+const emptyAccountForm: AccountForm = {
+  id: "",
+  employee_no: "",
+  display_name: "",
+  email: "",
+  phone: "",
+  department_id: "",
+  app_role: "employee",
+  active: true,
+  password: "",
+  department_ids: []
+};
 
 export default function SuperAdminPage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [departmentScopes, setDepartmentScopes] = useState<ScopeRow[]>([]);
   const [message, setMessage] = useState("");
-  const [departmentForm, setDepartmentForm] = useState({ code: "", name: "" });
-  const [accountForm, setAccountForm] = useState({ display_name: "", department_id: "", app_role: "employee" as AppRole, password: "" });
+  const [departmentForm, setDepartmentForm] = useState<DepartmentForm>(emptyDepartmentForm);
+  const [accountForm, setAccountForm] = useState<AccountForm>(emptyAccountForm);
 
+  const selectableDepartments = useMemo(() => visibleDepartments(departments).filter((department) => department.active), [departments]);
+  const listedDepartments = useMemo(() => visibleDepartments(departments), [departments]);
   const departmentAdmins = useMemo(() => profiles.filter((profile) => (profile.app_role ?? profile.role) === "department_admin"), [profiles]);
 
   useEffect(() => {
@@ -32,7 +62,7 @@ export default function SuperAdminPage() {
     setDepartmentScopes(scopeBody.departmentScopes ?? []);
   }
 
-  async function createDepartment(event: FormEvent) {
+  async function saveDepartment(event: FormEvent) {
     event.preventDefault();
     const response = await fetch("/api/super-admin/departments", {
       method: "POST",
@@ -42,24 +72,84 @@ export default function SuperAdminPage() {
     const body = await response.json();
     setMessage(response.ok ? "部門已儲存" : body.error || "部門儲存失敗");
     if (response.ok) {
-      setDepartmentForm({ code: "", name: "" });
+      setDepartmentForm(emptyDepartmentForm);
       refresh();
     }
   }
 
-  async function createAccount(event: FormEvent) {
+  async function deleteDepartment(id: string) {
+    const response = await fetch("/api/super-admin/departments", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id })
+    });
+    const body = await response.json();
+    setMessage(response.ok ? "部門已停用" : body.error || "部門停用失敗");
+    if (response.ok) refresh();
+  }
+
+  async function saveAccount(event: FormEvent) {
     event.preventDefault();
+    const payload = accountForm.app_role === "department_admin" ? accountForm : { ...accountForm, department_ids: [] };
     const response = await fetch("/api/super-admin/accounts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(accountForm)
+      body: JSON.stringify(payload)
     });
     const body = await response.json();
     setMessage(response.ok ? "帳號已儲存" : body.error || "帳號儲存失敗");
     if (response.ok) {
-      setAccountForm({ display_name: "", department_id: "", app_role: "employee", password: "" });
+      setAccountForm(emptyAccountForm);
       refresh();
     }
+  }
+
+  async function deleteAccount(id: string) {
+    const response = await fetch("/api/super-admin/accounts", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id })
+    });
+    const body = await response.json();
+    setMessage(response.ok ? "帳號已停用" : body.error || "帳號停用失敗");
+    if (response.ok) refresh();
+  }
+
+  async function saveScope(adminProfileId: string, departmentIds: string[]) {
+    const response = await fetch("/api/super-admin/admin-scopes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ admin_profile_id: adminProfileId, department_ids: departmentIds })
+    });
+    const body = await response.json();
+    setMessage(response.ok ? "管理部門已更新" : body.error || "管理部門更新失敗");
+    if (response.ok) refresh();
+  }
+
+  function editAccount(profile: Profile) {
+    setAccountForm({
+      id: profile.id,
+      employee_no: profile.employee_no ?? "",
+      display_name: profile.display_name,
+      email: profile.email ?? "",
+      phone: profile.phone ?? "",
+      department_id: profile.department_id ?? "",
+      app_role: profile.app_role ?? "employee",
+      active: profile.active,
+      password: "",
+      department_ids: scopesFor(profile.id)
+    });
+  }
+
+  function scopesFor(adminProfileId: string) {
+    return departmentScopes
+      .filter((scope) => scope.admin_profile_id === adminProfileId && scope.department_id)
+      .map((scope) => scope.department_id as string);
+  }
+
+  function departmentName(id: string | null | undefined) {
+    if (!id) return "-";
+    return departments.find((department) => department.id === id)?.name ?? id;
   }
 
   return (
@@ -77,10 +167,6 @@ export default function SuperAdminPage() {
             <ShieldCheck size={16} />
             權限總覽
           </a>
-          <a className="nav-btn" href="/admin">
-            <UsersRound size={16} />
-            部門行政
-          </a>
         </nav>
       </aside>
 
@@ -96,7 +182,7 @@ export default function SuperAdminPage() {
         <section className="metric-grid">
           <div className="metric">
             <span>部門</span>
-            <strong>{departments.length}</strong>
+            <strong>{listedDepartments.length}</strong>
           </div>
           <div className="metric">
             <span>人員</span>
@@ -113,9 +199,9 @@ export default function SuperAdminPage() {
             <div className="panel">
               <div className="panel-title">
                 <Building2 size={17} />
-                <h2>新增 / 更新部門</h2>
+                <h2>{departmentForm.id ? "編輯部門" : "新增部門"}</h2>
               </div>
-              <form className="form-grid single" onSubmit={createDepartment}>
+              <form className="form-grid single" onSubmit={saveDepartment}>
                 <label>
                   部門代碼
                   <input value={departmentForm.code} onChange={(event) => setDepartmentForm({ ...departmentForm, code: event.target.value })} required />
@@ -124,23 +210,49 @@ export default function SuperAdminPage() {
                   部門名稱
                   <input value={departmentForm.name} onChange={(event) => setDepartmentForm({ ...departmentForm, name: event.target.value })} required />
                 </label>
-                <button className="primary-btn">儲存部門</button>
+                <label className="check-row">
+                  <input type="checkbox" checked={departmentForm.active} onChange={(event) => setDepartmentForm({ ...departmentForm, active: event.target.checked })} />
+                  啟用
+                </label>
+                <div className="form-actions">
+                  {departmentForm.id ? (
+                    <button type="button" className="ghost-btn" onClick={() => setDepartmentForm(emptyDepartmentForm)}>
+                      取消
+                    </button>
+                  ) : null}
+                  <button className="primary-btn">儲存部門</button>
+                </div>
               </form>
             </div>
 
             <div className="panel">
               <div className="panel-title">
                 <KeyRound size={17} />
-                <h2>新增人員 / 行政帳號</h2>
+                <h2>{accountForm.id ? "編輯帳號" : "新增人員 / 行政帳號"}</h2>
               </div>
-              <form className="form-grid single" onSubmit={createAccount}>
+              <form className="form-grid single" onSubmit={saveAccount}>
                 <label>
                   姓名
                   <input value={accountForm.display_name} onChange={(event) => setAccountForm({ ...accountForm, display_name: event.target.value })} required />
                 </label>
                 <label>
+                  員工編號
+                  <input value={accountForm.employee_no} onChange={(event) => setAccountForm({ ...accountForm, employee_no: event.target.value })} />
+                </label>
+                <label>
+                  Email
+                  <input type="email" value={accountForm.email} onChange={(event) => setAccountForm({ ...accountForm, email: event.target.value })} />
+                </label>
+                <label>
+                  電話
+                  <input value={accountForm.phone} onChange={(event) => setAccountForm({ ...accountForm, phone: event.target.value })} />
+                </label>
+                <label>
                   角色
-                  <select value={accountForm.app_role} onChange={(event) => setAccountForm({ ...accountForm, app_role: event.target.value as AppRole })}>
+                  <select
+                    value={accountForm.app_role}
+                    onChange={(event) => setAccountForm({ ...accountForm, app_role: event.target.value as AppRole, department_ids: [] })}
+                  >
                     <option value="employee">employee</option>
                     <option value="department_admin">department_admin</option>
                     <option value="super_admin">super_admin</option>
@@ -150,38 +262,160 @@ export default function SuperAdminPage() {
                   所屬部門
                   <select value={accountForm.department_id} onChange={(event) => setAccountForm({ ...accountForm, department_id: event.target.value })}>
                     <option value="">無</option>
-                    {departments.map((department) => (
+                    {selectableDepartments.map((department) => (
                       <option key={department.id} value={department.id}>
                         {department.name}
                       </option>
                     ))}
                   </select>
                 </label>
+                {accountForm.app_role === "department_admin" ? (
+                  <label>
+                    可管理部門
+                    <select
+                      multiple
+                      className="multi-select"
+                      value={accountForm.department_ids}
+                      onChange={(event) => setAccountForm({ ...accountForm, department_ids: Array.from(event.target.selectedOptions, (option) => option.value) })}
+                    >
+                      {selectableDepartments.map((department) => (
+                        <option key={department.id} value={department.id}>
+                          {department.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
                 <label>
-                  初始密碼
+                  {accountForm.id ? "新密碼（留空不變）" : "初始密碼"}
                   <input type="password" value={accountForm.password} onChange={(event) => setAccountForm({ ...accountForm, password: event.target.value })} />
                 </label>
-                <button className="primary-btn">儲存帳號</button>
+                <label className="check-row">
+                  <input type="checkbox" checked={accountForm.active} onChange={(event) => setAccountForm({ ...accountForm, active: event.target.checked })} />
+                  啟用
+                </label>
+                <div className="form-actions">
+                  {accountForm.id ? (
+                    <button type="button" className="ghost-btn" onClick={() => setAccountForm(emptyAccountForm)}>
+                      取消
+                    </button>
+                  ) : null}
+                  <button className="primary-btn">儲存帳號</button>
+                </div>
               </form>
             </div>
           </div>
 
-          <div className="panel">
-            <div className="panel-title">
-              <UsersRound size={17} />
-              <h2>行政與部門 scope</h2>
+          <div className="stack">
+            <div className="panel">
+              <div className="panel-title">
+                <Building2 size={17} />
+                <h2>部門列表</h2>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>代碼</th>
+                      <th>名稱</th>
+                      <th>狀態</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {listedDepartments.map((department) => (
+                      <tr key={department.id}>
+                        <td>{department.code}</td>
+                        <td>{department.name}</td>
+                        <td>{department.active ? "啟用" : "停用"}</td>
+                        <td>
+                          <div className="row-actions">
+                            <button className="icon-btn" title="編輯" onClick={() => setDepartmentForm(department)}>
+                              <Edit3 size={14} />
+                            </button>
+                            <button className="icon-btn" title="停用" onClick={() => deleteDepartment(department.id)}>
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!listedDepartments.length ? <div className="empty">尚未建立部門</div> : null}
+              </div>
             </div>
-            <div className="role-list">
-              {departmentAdmins.map((admin) => {
-                const scopes = departmentScopes.filter((scope) => scope.admin_profile_id === admin.id);
-                return (
-                  <div className="role-item" key={admin.id}>
-                    <strong>{admin.display_name}</strong>
-                    <span>{scopes.length ? scopes.map((scope) => departments.find((department) => department.id === scope.department_id)?.name ?? scope.department_id).join(", ") : "尚未設定部門"}</span>
-                  </div>
-                );
-              })}
-              {!departmentAdmins.length ? <div className="empty">尚未建立部門行政帳號</div> : null}
+
+            <div className="panel">
+              <div className="panel-title">
+                <UsersRound size={17} />
+                <h2>帳號 / 人員列表</h2>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>姓名</th>
+                      <th>角色</th>
+                      <th>所屬部門</th>
+                      <th>狀態</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {profiles.map((profile) => (
+                      <tr key={profile.id}>
+                        <td>{profile.display_name}</td>
+                        <td>{profile.app_role ?? profile.role}</td>
+                        <td>{departmentName(profile.department_id)}</td>
+                        <td>{profile.active && !profile.login_disabled_at ? "啟用" : "停用"}</td>
+                        <td>
+                          <div className="row-actions">
+                            <button className="icon-btn" title="編輯" onClick={() => editAccount(profile)}>
+                              <Edit3 size={14} />
+                            </button>
+                            <button className="icon-btn" title="停用" onClick={() => deleteAccount(profile.id)}>
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!profiles.length ? <div className="empty">尚未建立帳號</div> : null}
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="panel-title">
+                <UsersRound size={17} />
+                <h2>行政與部門 scope</h2>
+              </div>
+              <div className="role-list">
+                {departmentAdmins.map((admin) => {
+                  const scopeIds = scopesFor(admin.id);
+                  return (
+                    <div className="role-item scope-item" key={admin.id}>
+                      <strong>{admin.display_name}</strong>
+                      <span>{scopeIds.length ? scopeIds.map(departmentName).join(", ") : "尚未設定部門"}</span>
+                      <select
+                        multiple
+                        className="multi-select compact"
+                        value={scopeIds}
+                        onChange={(event) => saveScope(admin.id, Array.from(event.target.selectedOptions, (option) => option.value))}
+                      >
+                        {selectableDepartments.map((department) => (
+                          <option key={department.id} value={department.id}>
+                            {department.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+                {!departmentAdmins.length ? <div className="empty">尚未建立部門行政帳號</div> : null}
+              </div>
             </div>
           </div>
         </section>

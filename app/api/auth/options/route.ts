@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { appRoles, toAppRole } from "@/app/lib/auth/roles";
+import { visibleDepartments } from "@/app/lib/departments";
 import type { AppRole } from "@/app/lib/domain";
 import { hasSupabaseConfig } from "@/app/lib/storage";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
@@ -35,7 +36,7 @@ export async function GET(request: Request) {
   const departmentIds = new Set(filteredProfiles.map((profile) => profile.department_id).filter(Boolean));
 
   return NextResponse.json({
-    departments: (departments.data ?? []).filter((department) => departmentIds.has(department.id))
+    departments: visibleDepartments(departments.data ?? []).filter((department) => departmentIds.has(department.id))
   });
 }
 

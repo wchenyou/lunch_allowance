@@ -5,7 +5,7 @@ import { deleteReceipt, upsertReceipt } from "@/app/lib/storage";
 type Params = { params: Promise<{ id: string }> };
 
 export async function PUT(request: Request, { params }: Params) {
-  const guard = await requireSession(["department_admin", "super_admin"]);
+  const guard = await requireSession(["department_admin"]);
   if (guard.response) return guard.response;
   const { id } = await params;
   const input = await request.json();
@@ -14,7 +14,7 @@ export async function PUT(request: Request, { params }: Params) {
 }
 
 export async function DELETE(_request: Request, { params }: Params) {
-  const guard = await requireSession(["department_admin", "super_admin"]);
+  const guard = await requireSession(["department_admin"]);
   if (guard.response) return guard.response;
   const { id } = await params;
   const db = await deleteReceipt(id);

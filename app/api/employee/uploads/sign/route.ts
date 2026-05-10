@@ -14,7 +14,7 @@ const safeExtension = (contentType: string) => {
 };
 
 export async function POST(request: Request) {
-  const guard = await requireSession(["employee", "department_admin", "super_admin"]);
+  const guard = await requireSession(["employee"]);
   if (guard.response) return guard.response;
   if (!hasSupabaseConfig()) {
     return NextResponse.json({ error: "Supabase storage is not configured" }, { status: 501 });

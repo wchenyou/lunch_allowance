@@ -5,7 +5,7 @@ import { readDb } from "@/app/lib/storage";
 const csvEscape = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
 
 export async function GET(request: Request) {
-  const guard = await requireSession(["department_admin", "super_admin"]);
+  const guard = await requireSession(["department_admin"]);
   if (guard.response) return guard.response;
   const url = new URL(request.url);
   const start = url.searchParams.get("start") ?? "";

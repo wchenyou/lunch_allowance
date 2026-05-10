@@ -200,6 +200,10 @@ h2 {
   align-items: center;
 }
 
+.row-actions {
+  gap: 6px;
+}
+
 .panel-title {
   gap: 8px;
   margin-bottom: 16px;
@@ -254,6 +258,15 @@ select {
 input:focus,
 select:focus {
   border-color: rgba(113, 112, 255, 0.65);
+}
+
+.multi-select {
+  min-height: 96px;
+}
+
+.multi-select.compact {
+  min-width: 180px;
+  min-height: 76px;
 }
 
 select option {
@@ -659,6 +672,10 @@ td {
 
 .role-item span {
   flex: 1;
+}
+
+.scope-item {
+  align-items: stretch;
 }
 
 @media (max-width: 980px) {

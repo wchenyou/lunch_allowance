@@ -4,7 +4,7 @@ import { hashPassword, verifyPassword } from "@/app/lib/auth/password";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 
 export async function POST(request: Request) {
-  const guard = await requireSession(["employee", "department_admin", "super_admin"]);
+  const guard = await requireSession(["employee"]);
   if (guard.response) return guard.response;
   const input = await request.json();
   const currentPassword = String(input.current_password ?? "");

@@ -28,6 +28,7 @@ export type Profile = {
   app_role?: AppRole;
   password_hash?: string | null;
   password_updated_at?: string | null;
+  login_disabled_at?: string | null;
   active: boolean;
   onboarded_at: string | null;
   created_at: string;

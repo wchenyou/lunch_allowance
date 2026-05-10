@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/app/lib/api/guards";
+import { isSystemDepartment } from "@/app/lib/departments";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 
 export async function GET() {
@@ -20,11 +21,28 @@ export async function POST(request: Request) {
   if (guard.response) return guard.response;
   const input = await request.json();
   const adminProfileId = String(input.admin_profile_id ?? "").trim();
-  const departmentIds: string[] = Array.isArray(input.department_ids) ? input.department_ids.map((departmentId: unknown) => String(departmentId)) : [];
-  const employeeIds: string[] = Array.isArray(input.employee_ids) ? input.employee_ids.map((employeeId: unknown) => String(employeeId)) : [];
+  const departmentIds: string[] = Array.isArray(input.department_ids)
+    ? input.department_ids.map((departmentId: unknown) => String(departmentId).trim()).filter(Boolean)
+    : [];
+  const employeeIds: string[] = Array.isArray(input.employee_ids) ? input.employee_ids.map((employeeId: unknown) => String(employeeId).trim()).filter(Boolean) : [];
   if (!adminProfileId) return NextResponse.json({ error: "admin_profile_id is required" }, { status: 400 });
 
   const supabase = createSupabaseAdminClient();
+  const { data: adminProfile, error: profileError } = await supabase.from("profiles").select("id, app_role").eq("id", adminProfileId).single();
+  if (profileError || !adminProfile) return NextResponse.json({ error: profileError?.message ?? "Admin profile not found" }, { status: 404 });
+  if (adminProfile.app_role !== "department_admin") return NextResponse.json({ error: "只有部門行政帳號可設定管理部門" }, { status: 400 });
+  if (departmentIds.length) {
+    const uniqueDepartmentIds = [...new Set(departmentIds)];
+    const { data: selectedDepartments, error: departmentError } = await supabase
+      .from("departments")
+      .select("id, code, name, active")
+      .in("id", uniqueDepartmentIds);
+    if (departmentError) return NextResponse.json({ error: departmentError.message }, { status: 400 });
+    if ((selectedDepartments ?? []).length !== uniqueDepartmentIds.length || (selectedDepartments ?? []).some((department) => !department.active || isSystemDepartment(department))) {
+      return NextResponse.json({ error: "不可授權不存在、停用或系統管理部門" }, { status: 400 });
+    }
+  }
+
   const deleteDepartments = await supabase.from("department_admin_departments").delete().eq("admin_profile_id", adminProfileId);
   const deleteEmployees = await supabase.from("department_admin_employees").delete().eq("admin_profile_id", adminProfileId);
   const deleteError = deleteDepartments.error ?? deleteEmployees.error;
