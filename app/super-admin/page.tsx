@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, Edit3, KeyRound, ShieldCheck, Trash2, UsersRound } from "lucide-react";
+import { Building2, Edit3, KeyRound, Plus, ShieldCheck, Trash2, UsersRound, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { visibleDepartments } from "@/app/lib/departments";
 import type { AppRole, Department, Profile } from "@/app/lib/domain";
@@ -19,6 +19,7 @@ type AccountForm = {
   password: string;
   department_ids: string[];
 };
+type RoleFilter = "all" | AppRole;
 
 const emptyDepartmentForm: DepartmentForm = { id: "", code: "", name: "", active: true };
 const emptyAccountForm: AccountForm = {
@@ -34,6 +35,19 @@ const emptyAccountForm: AccountForm = {
   department_ids: []
 };
 
+const roleLabels: Record<AppRole, string> = {
+  super_admin: "最高權限",
+  department_admin: "部門行政",
+  employee: "員工"
+};
+
+const roleFilterOptions: { value: RoleFilter; label: string }[] = [
+  { value: "all", label: "全部" },
+  { value: "super_admin", label: "最高權限" },
+  { value: "department_admin", label: "部門行政" },
+  { value: "employee", label: "員工" }
+];
+
 export default function SuperAdminPage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -41,10 +55,17 @@ export default function SuperAdminPage() {
   const [message, setMessage] = useState("");
   const [departmentForm, setDepartmentForm] = useState<DepartmentForm>(emptyDepartmentForm);
   const [accountForm, setAccountForm] = useState<AccountForm>(emptyAccountForm);
+  const [departmentModalOpen, setDepartmentModalOpen] = useState(false);
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
 
   const selectableDepartments = useMemo(() => visibleDepartments(departments).filter((department) => department.active), [departments]);
   const listedDepartments = useMemo(() => visibleDepartments(departments), [departments]);
   const departmentAdmins = useMemo(() => profiles.filter((profile) => (profile.app_role ?? profile.role) === "department_admin"), [profiles]);
+  const listedProfiles = useMemo(
+    () => profiles.filter((profile) => roleFilter === "all" || (profile.app_role ?? profile.role) === roleFilter),
+    [profiles, roleFilter]
+  );
 
   useEffect(() => {
     refresh();
@@ -72,7 +93,7 @@ export default function SuperAdminPage() {
     const body = await response.json();
     setMessage(response.ok ? "部門已儲存" : body.error || "部門儲存失敗");
     if (response.ok) {
-      setDepartmentForm(emptyDepartmentForm);
+      closeDepartmentModal();
       refresh();
     }
   }
@@ -99,7 +120,7 @@ export default function SuperAdminPage() {
     const body = await response.json();
     setMessage(response.ok ? "帳號已儲存" : body.error || "帳號儲存失敗");
     if (response.ok) {
-      setAccountForm(emptyAccountForm);
+      closeAccountModal();
       refresh();
     }
   }
@@ -126,6 +147,31 @@ export default function SuperAdminPage() {
     if (response.ok) refresh();
   }
 
+  function openNewDepartment() {
+    setDepartmentForm(emptyDepartmentForm);
+    setDepartmentModalOpen(true);
+  }
+
+  function editDepartment(department: Department) {
+    setDepartmentForm({
+      id: department.id,
+      code: department.code,
+      name: department.name,
+      active: department.active
+    });
+    setDepartmentModalOpen(true);
+  }
+
+  function closeDepartmentModal() {
+    setDepartmentForm(emptyDepartmentForm);
+    setDepartmentModalOpen(false);
+  }
+
+  function openNewAccount() {
+    setAccountForm(emptyAccountForm);
+    setAccountModalOpen(true);
+  }
+
   function editAccount(profile: Profile) {
     setAccountForm({
       id: profile.id,
@@ -139,6 +185,12 @@ export default function SuperAdminPage() {
       password: "",
       department_ids: scopesFor(profile.id)
     });
+    setAccountModalOpen(true);
+  }
+
+  function closeAccountModal() {
+    setAccountForm(emptyAccountForm);
+    setAccountModalOpen(false);
   }
 
   function scopesFor(adminProfileId: string) {
@@ -150,6 +202,12 @@ export default function SuperAdminPage() {
   function departmentName(id: string | null | undefined) {
     if (!id) return "-";
     return departments.find((department) => department.id === id)?.name ?? id;
+  }
+
+  function roleName(role: Profile["role"] | AppRole | null | undefined) {
+    if (role === "admin" || role === "super_admin") return roleLabels.super_admin;
+    if (role === "hr" || role === "manager" || role === "department_admin") return roleLabels.department_admin;
+    return roleLabels.employee;
   }
 
   return (
@@ -194,123 +252,17 @@ export default function SuperAdminPage() {
           </div>
         </section>
 
-        <section className="grid two">
-          <div className="stack">
+        <section className="stack">
             <div className="panel">
-              <div className="panel-title">
-                <Building2 size={17} />
-                <h2>{departmentForm.id ? "編輯部門" : "新增部門"}</h2>
-              </div>
-              <form className="form-grid single" onSubmit={saveDepartment}>
-                <label>
-                  部門代碼
-                  <input value={departmentForm.code} onChange={(event) => setDepartmentForm({ ...departmentForm, code: event.target.value })} required />
-                </label>
-                <label>
-                  部門名稱
-                  <input value={departmentForm.name} onChange={(event) => setDepartmentForm({ ...departmentForm, name: event.target.value })} required />
-                </label>
-                <label className="check-row">
-                  <input type="checkbox" checked={departmentForm.active} onChange={(event) => setDepartmentForm({ ...departmentForm, active: event.target.checked })} />
-                  啟用
-                </label>
-                <div className="form-actions">
-                  {departmentForm.id ? (
-                    <button type="button" className="ghost-btn" onClick={() => setDepartmentForm(emptyDepartmentForm)}>
-                      取消
-                    </button>
-                  ) : null}
-                  <button className="primary-btn">儲存部門</button>
+              <div className="section-row panel-title">
+                <div className="panel-title inline-title">
+                  <Building2 size={17} />
+                  <h2>部門列表</h2>
                 </div>
-              </form>
-            </div>
-
-            <div className="panel">
-              <div className="panel-title">
-                <KeyRound size={17} />
-                <h2>{accountForm.id ? "編輯帳號" : "新增人員 / 行政帳號"}</h2>
-              </div>
-              <form className="form-grid single" onSubmit={saveAccount}>
-                <label>
-                  姓名
-                  <input value={accountForm.display_name} onChange={(event) => setAccountForm({ ...accountForm, display_name: event.target.value })} required />
-                </label>
-                <label>
-                  員工編號
-                  <input value={accountForm.employee_no} onChange={(event) => setAccountForm({ ...accountForm, employee_no: event.target.value })} />
-                </label>
-                <label>
-                  Email
-                  <input type="email" value={accountForm.email} onChange={(event) => setAccountForm({ ...accountForm, email: event.target.value })} />
-                </label>
-                <label>
-                  電話
-                  <input value={accountForm.phone} onChange={(event) => setAccountForm({ ...accountForm, phone: event.target.value })} />
-                </label>
-                <label>
-                  角色
-                  <select
-                    value={accountForm.app_role}
-                    onChange={(event) => setAccountForm({ ...accountForm, app_role: event.target.value as AppRole, department_ids: [] })}
-                  >
-                    <option value="employee">employee</option>
-                    <option value="department_admin">department_admin</option>
-                    <option value="super_admin">super_admin</option>
-                  </select>
-                </label>
-                <label>
-                  所屬部門
-                  <select value={accountForm.department_id} onChange={(event) => setAccountForm({ ...accountForm, department_id: event.target.value })}>
-                    <option value="">無</option>
-                    {selectableDepartments.map((department) => (
-                      <option key={department.id} value={department.id}>
-                        {department.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {accountForm.app_role === "department_admin" ? (
-                  <label>
-                    可管理部門
-                    <select
-                      multiple
-                      className="multi-select"
-                      value={accountForm.department_ids}
-                      onChange={(event) => setAccountForm({ ...accountForm, department_ids: Array.from(event.target.selectedOptions, (option) => option.value) })}
-                    >
-                      {selectableDepartments.map((department) => (
-                        <option key={department.id} value={department.id}>
-                          {department.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
-                <label>
-                  {accountForm.id ? "新密碼（留空不變）" : "初始密碼"}
-                  <input type="password" value={accountForm.password} onChange={(event) => setAccountForm({ ...accountForm, password: event.target.value })} />
-                </label>
-                <label className="check-row">
-                  <input type="checkbox" checked={accountForm.active} onChange={(event) => setAccountForm({ ...accountForm, active: event.target.checked })} />
-                  啟用
-                </label>
-                <div className="form-actions">
-                  {accountForm.id ? (
-                    <button type="button" className="ghost-btn" onClick={() => setAccountForm(emptyAccountForm)}>
-                      取消
-                    </button>
-                  ) : null}
-                  <button className="primary-btn">儲存帳號</button>
-                </div>
-              </form>
-            </div>
-          </div>
-
-          <div className="stack">
-            <div className="panel">
-              <div className="panel-title">
-                <Building2 size={17} />
-                <h2>部門列表</h2>
+                <button type="button" className="primary-btn" onClick={openNewDepartment}>
+                  <Plus size={15} />
+                  新增部門
+                </button>
               </div>
               <div className="table-wrap">
                 <table>
@@ -330,7 +282,7 @@ export default function SuperAdminPage() {
                         <td>{department.active ? "啟用" : "停用"}</td>
                         <td>
                           <div className="row-actions">
-                            <button className="icon-btn" title="編輯" onClick={() => setDepartmentForm(department)}>
+                            <button className="icon-btn" title="編輯" onClick={() => editDepartment(department)}>
                               <Edit3 size={14} />
                             </button>
                             <button className="icon-btn" title="停用" onClick={() => deleteDepartment(department.id)}>
@@ -347,9 +299,27 @@ export default function SuperAdminPage() {
             </div>
 
             <div className="panel">
-              <div className="panel-title">
-                <UsersRound size={17} />
-                <h2>帳號 / 人員列表</h2>
+              <div className="section-row panel-title">
+                <div className="panel-title inline-title">
+                  <UsersRound size={17} />
+                  <h2>帳號 / 人員列表</h2>
+                </div>
+                <button type="button" className="primary-btn" onClick={openNewAccount}>
+                  <Plus size={15} />
+                  新增帳號
+                </button>
+              </div>
+              <div className="filters">
+                <label className="filter-field">
+                  層級類型
+                  <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}>
+                    {roleFilterOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
               <div className="table-wrap">
                 <table>
@@ -363,10 +333,10 @@ export default function SuperAdminPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {profiles.map((profile) => (
+                    {listedProfiles.map((profile) => (
                       <tr key={profile.id}>
                         <td>{profile.display_name}</td>
-                        <td>{profile.app_role ?? profile.role}</td>
+                        <td>{roleName(profile.app_role ?? profile.role)}</td>
                         <td>{departmentName(profile.department_id)}</td>
                         <td>{profile.active && !profile.login_disabled_at ? "啟用" : "停用"}</td>
                         <td>
@@ -383,7 +353,7 @@ export default function SuperAdminPage() {
                     ))}
                   </tbody>
                 </table>
-                {!profiles.length ? <div className="empty">尚未建立帳號</div> : null}
+                {!listedProfiles.length ? <div className="empty">沒有符合此層級的帳號</div> : null}
               </div>
             </div>
 
@@ -417,9 +387,126 @@ export default function SuperAdminPage() {
                 {!departmentAdmins.length ? <div className="empty">尚未建立部門行政帳號</div> : null}
               </div>
             </div>
-          </div>
         </section>
       </main>
+      {departmentModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={closeDepartmentModal}>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="department-modal-title" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div className="panel-title inline-title">
+                <Building2 size={17} />
+                <h2 id="department-modal-title">{departmentForm.id ? "編輯部門" : "新增部門"}</h2>
+              </div>
+              <button type="button" className="icon-btn" title="關閉" onClick={closeDepartmentModal}>
+                <X size={15} />
+              </button>
+            </div>
+            <form className="form-grid single" onSubmit={saveDepartment}>
+              <label>
+                部門代碼
+                <input value={departmentForm.code} onChange={(event) => setDepartmentForm({ ...departmentForm, code: event.target.value })} required />
+              </label>
+              <label>
+                部門名稱
+                <input value={departmentForm.name} onChange={(event) => setDepartmentForm({ ...departmentForm, name: event.target.value })} required />
+              </label>
+              <label className="check-row">
+                <input type="checkbox" checked={departmentForm.active} onChange={(event) => setDepartmentForm({ ...departmentForm, active: event.target.checked })} />
+                啟用
+              </label>
+              <div className="form-actions">
+                <button type="button" className="ghost-btn" onClick={closeDepartmentModal}>
+                  取消
+                </button>
+                <button className="primary-btn">儲存部門</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+      {accountModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={closeAccountModal}>
+          <div className="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="account-modal-title" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div className="panel-title inline-title">
+                <KeyRound size={17} />
+                <h2 id="account-modal-title">{accountForm.id ? "編輯帳號" : "新增人員 / 行政帳號"}</h2>
+              </div>
+              <button type="button" className="icon-btn" title="關閉" onClick={closeAccountModal}>
+                <X size={15} />
+              </button>
+            </div>
+            <form className="form-grid" onSubmit={saveAccount}>
+              <label>
+                姓名
+                <input value={accountForm.display_name} onChange={(event) => setAccountForm({ ...accountForm, display_name: event.target.value })} required />
+              </label>
+              <label>
+                員工編號
+                <input value={accountForm.employee_no} onChange={(event) => setAccountForm({ ...accountForm, employee_no: event.target.value })} />
+              </label>
+              <label>
+                Email
+                <input type="email" value={accountForm.email} onChange={(event) => setAccountForm({ ...accountForm, email: event.target.value })} />
+              </label>
+              <label>
+                電話
+                <input value={accountForm.phone} onChange={(event) => setAccountForm({ ...accountForm, phone: event.target.value })} />
+              </label>
+              <label>
+                角色
+                <select value={accountForm.app_role} onChange={(event) => setAccountForm({ ...accountForm, app_role: event.target.value as AppRole, department_ids: [] })}>
+                  <option value="employee">員工</option>
+                  <option value="department_admin">部門行政</option>
+                  <option value="super_admin">最高權限</option>
+                </select>
+              </label>
+              <label>
+                所屬部門
+                <select value={accountForm.department_id} onChange={(event) => setAccountForm({ ...accountForm, department_id: event.target.value })}>
+                  <option value="">無</option>
+                  {selectableDepartments.map((department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {accountForm.app_role === "department_admin" ? (
+                <label>
+                  可管理部門
+                  <select
+                    multiple
+                    className="multi-select"
+                    value={accountForm.department_ids}
+                    onChange={(event) => setAccountForm({ ...accountForm, department_ids: Array.from(event.target.selectedOptions, (option) => option.value) })}
+                  >
+                    {selectableDepartments.map((department) => (
+                      <option key={department.id} value={department.id}>
+                        {department.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <label>
+                {accountForm.id ? "新密碼（留空不變）" : "初始密碼"}
+                <input type="password" value={accountForm.password} onChange={(event) => setAccountForm({ ...accountForm, password: event.target.value })} />
+              </label>
+              <label className="check-row">
+                <input type="checkbox" checked={accountForm.active} onChange={(event) => setAccountForm({ ...accountForm, active: event.target.checked })} />
+                啟用
+              </label>
+              <div className="form-actions">
+                <button type="button" className="ghost-btn" onClick={closeAccountModal}>
+                  取消
+                </button>
+                <button className="primary-btn">儲存帳號</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
