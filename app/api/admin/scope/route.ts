@@ -35,16 +35,23 @@ export async function GET() {
   const error = departments.error ?? profiles.error ?? receipts.error ?? claims.error ?? attachments.error ?? permissions.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const bucket = process.env.RECEIPT_IMAGE_BUCKET || RECEIPT_IMAGE_BUCKET;
-  const attachmentsWithUrls = await Promise.all(
-    (attachments.data ?? []).map(async (attachment) => {
-      const signed = await supabase.storage.from(bucket).createSignedUrl(attachment.object_path, 60 * 60);
-      return {
+  let attachmentsWithUrls = (attachments.data ?? []).map((attachment) => ({
+    ...attachment,
+    file_name: attachment.object_path.split("/").pop(),
+    signed_url: null as string | null
+  }));
+
+  if (attachmentsWithUrls.length > 0) {
+    const paths = attachmentsWithUrls.map((a) => a.object_path);
+    const { data: signedUrlsData } = await supabase.storage.from(bucket).createSignedUrls(paths, 60 * 60);
+    if (signedUrlsData) {
+      const urlMap = new Map(signedUrlsData.map((d) => [d.path, d.signedUrl]));
+      attachmentsWithUrls = attachmentsWithUrls.map((attachment) => ({
         ...attachment,
-        file_name: attachment.object_path.split("/").pop(),
-        signed_url: signed.data?.signedUrl ?? null
-      };
-    })
-  );
+        signed_url: urlMap.get(attachment.object_path) ?? null
+      }));
+    }
+  }
   return NextResponse.json({
     departments: departments.data ?? [],
     profiles: profiles.data ?? [],

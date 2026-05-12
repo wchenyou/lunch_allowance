@@ -23,12 +23,17 @@ export async function GET() {
       const allowedIds = new Set([guard.session.profileId, ...(permissions ?? []).map((permission) => permission.claimant_profile_id)]);
       allowedClaimants = db.employees.filter((employee) => allowedIds.has(employee.employee_id) && employee.active);
       const bucket = process.env.RECEIPT_IMAGE_BUCKET || RECEIPT_IMAGE_BUCKET;
-      signedAttachments = await Promise.all(
-        signedAttachments.map(async (attachment) => {
-          const signed = await supabase.storage.from(bucket).createSignedUrl(attachment.object_path, 60 * 60);
-          return { ...attachment, signed_url: signed.data?.signedUrl };
-        })
-      );
+      if (signedAttachments.length > 0) {
+        const paths = signedAttachments.map((a) => a.object_path);
+        const { data: signedUrlsData } = await supabase.storage.from(bucket).createSignedUrls(paths, 60 * 60);
+        if (signedUrlsData) {
+          const urlMap = new Map(signedUrlsData.map((d) => [d.path, d.signedUrl]));
+          signedAttachments = signedAttachments.map((attachment) => ({
+            ...attachment,
+            signed_url: urlMap.get(attachment.object_path) ?? null
+          }));
+        }
+      }
     } catch {
       allowedClaimants = db.employees.filter((employee) => employee.employee_id === guard.session?.profileId);
     }
