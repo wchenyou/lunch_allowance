@@ -41,7 +41,7 @@ function loginWithAdminPassword(password: string) {
   }
 
   const response = NextResponse.json({ ok: true, role: "super_admin", redirect_to: "/super-admin" });
-  response.cookies.set(APP_SESSION_COOKIE, encodeSession({ profileId: "super-admin", role: "super_admin", departmentIds: [], displayName: "系統管理員" }), {
+  response.cookies.set(APP_SESSION_COOKIE, encodeSession({ profileId: "super-admin", role: "super_admin", departmentIds: [], displayName: "系統管理員", account: "admin" }), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
@@ -157,6 +157,7 @@ async function finishProfileLogin(
   profile: {
     id: string;
     display_name: string;
+    employee_no?: string | null;
     department_id: string | null;
     role: ProfileRole | null;
     app_role?: AppRole | null;
@@ -190,7 +191,7 @@ async function finishProfileLogin(
 
   const redirectTo = role === "super_admin" ? "/super-admin" : role === "department_admin" ? "/admin" : "/employee";
   const response = NextResponse.json({ ok: true, role, redirect_to: redirectTo, must_change_password: credential?.must_change_password ?? false });
-  response.cookies.set(APP_SESSION_COOKIE, encodeSession({ profileId: profile.id, role, departmentIds, displayName: profile.display_name }), {
+  response.cookies.set(APP_SESSION_COOKIE, encodeSession({ profileId: profile.id, role, departmentIds, displayName: profile.display_name, account: profile.employee_no || "admin" }), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

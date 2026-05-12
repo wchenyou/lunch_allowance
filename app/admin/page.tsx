@@ -40,10 +40,13 @@ const statusLabels: Record<string, string> = { submitted: "申請中", settled: 
 export default function DepartmentAdminPage() {
   const router = useRouter();
   const [scope, setScope] = useState<AdminScope>({ departments: [], profiles: [], receipts: [], claims: [], attachments: [], claimantPermissions: [] });
+  const [session, setSession] = useState<any>(null);
   const [tab, setTab] = useState<Tab>("receipts");
+  const [hasSearched, setHasSearched] = useState(false);
   const [message, setMessage] = useState("");
   const [activeEmployeeId, setActiveEmployeeId] = useState("");
   const [filters, setFilters] = useState({ start: "", end: "", employee: "", status: "" });
+  const [committedFilters, setCommittedFilters] = useState({ start: "", end: "", employee: "", status: "" });
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "" });
 
@@ -51,14 +54,29 @@ export default function DepartmentAdminPage() {
     refresh();
   }, []);
 
+  useEffect(() => {
+    if (tab !== "stats") {
+      setHasSearched(false);
+      setCommittedFilters({ start: "", end: "", employee: "", status: "" });
+    }
+  }, [tab]);
+
   async function refresh() {
-    const response = await fetch("/api/admin/scope", { cache: "no-store" });
-    const body = await response.json();
-    if (!response.ok) {
-      setMessage(body.error || "無法載入部門行政資料");
+    const [scopeRes, sessionRes] = await Promise.all([
+      fetch("/api/admin/scope", { cache: "no-store" }),
+      fetch("/api/auth/session")
+    ]);
+    const scopeBody = await scopeRes.json();
+    const sessionBody = await sessionRes.json();
+    
+    if (!scopeRes.ok) {
+      setMessage(scopeBody.error || "無法載入部門行政資料");
       return;
     }
-    setScope(body);
+    setScope(scopeBody);
+    if (sessionRes.ok) {
+      setSession(sessionBody.session);
+    }
   }
 
   const profilesById = useMemo(() => new Map(scope.profiles.map((profile) => [profile.id, profile])), [scope.profiles]);
@@ -69,19 +87,25 @@ export default function DepartmentAdminPage() {
   const filteredReceipts = useMemo(
     () =>
       scope.receipts
-        .filter((receipt) => !filters.start || receipt.receipt_date >= filters.start)
-        .filter((receipt) => !filters.end || receipt.receipt_date <= filters.end)
-        .filter((receipt) => !filters.status || receipt.status === filters.status)
-        .filter((receipt) => !filters.employee || receipt.submitted_by === filters.employee || (claimsByReceipt.get(receipt.id) ?? []).some((claim) => claim.profile_id === filters.employee)),
-    [claimsByReceipt, filters, scope.receipts]
+        .filter((receipt) => !committedFilters.start || receipt.receipt_date >= committedFilters.start)
+        .filter((receipt) => !committedFilters.end || receipt.receipt_date <= committedFilters.end)
+        .filter((receipt) => !committedFilters.status || receipt.status === committedFilters.status)
+        .filter((receipt) => !committedFilters.employee || receipt.submitted_by === committedFilters.employee || (claimsByReceipt.get(receipt.id) ?? []).some((claim) => claim.profile_id === committedFilters.employee)),
+    [claimsByReceipt, committedFilters, scope.receipts]
   );
   const employeeSummaries = useMemo(
     () =>
       employees.map((employee) => {
-        const employeeClaims = scope.claims.filter((claim) => claim.profile_id === employee.id && receiptById(scope.receipts, claim.receipt_id)?.status === "submitted");
-        const receiptIds = new Set(employeeClaims.map((claim) => claim.receipt_id));
-        const actualTotal = [...receiptIds].reduce((sum, receiptId) => sum + Number(receiptById(scope.receipts, receiptId)?.total_amount ?? 0), 0);
-        const subsidyTotal = employeeClaims.reduce((sum, claim) => sum + Number(claim.subsidy_amount ?? 0), 0);
+        // Only count amounts for receipts where this employee is the actual submitter (applicant)
+        const submittedReceipts = scope.receipts.filter(r => r.submitted_by === employee.id && r.status === "submitted");
+        const actualTotal = submittedReceipts.reduce((sum, r) => sum + Number(r.total_amount || 0), 0);
+        
+        // Capped amount is the sum of subsidy_amount for all claims attached to those specific receipts
+        const receiptIds = new Set(submittedReceipts.map(r => r.id));
+        const subsidyTotal = scope.claims
+          .filter(c => receiptIds.has(c.receipt_id))
+          .reduce((sum, c) => sum + Number(c.subsidy_amount || 0), 0);
+
         return { employee, actualTotal, subsidyTotal, receiptIds: [...receiptIds] };
       }),
     [employees, scope.claims, scope.receipts]
@@ -155,14 +179,13 @@ export default function DepartmentAdminPage() {
           <div className="brand-mark">行</div>
           <div>
             <strong>部門行政</strong>
-            <span>限定管理授權部門</span>
+            <span>{session?.account || session?.displayName || "載入中..."}</span>
           </div>
         </div>
         <nav>
           <NavButton active={tab === "receipts"} icon={<ClipboardList size={16} />} label="單據列表" onClick={() => setTab("receipts")} />
           <NavButton active={tab === "payouts"} icon={<WalletCards size={16} />} label="員工請款" onClick={() => setTab("payouts")} />
           <NavButton active={tab === "stats"} icon={<ReceiptText size={16} />} label="單據統計" onClick={() => setTab("stats")} />
-          <NavButton active={tab === "permissions"} icon={<UsersRound size={16} />} label="合單名單" onClick={() => setTab("permissions")} />
         </nav>
         <div style={{ marginTop: "auto" }}>
           <NavButton active={false} icon={<KeyRound size={16} />} label="更改密碼" onClick={() => setPasswordModalOpen(true)} />
@@ -178,11 +201,21 @@ export default function DepartmentAdminPage() {
           {message ? <div className="toast">{message}</div> : null}
         </header>
 
-        <section className="metric-grid">
-          <Metric label="可管理部門" value={scope.departments.length.toString()} />
-          <Metric label="申請中單據" value={scope.receipts.filter((receipt) => receipt.status === "submitted").length.toString()} />
-          <Metric label="待請款金額" value={money(scope.claims.filter((claim) => receiptById(scope.receipts, claim.receipt_id)?.status === "submitted").reduce((sum, claim) => sum + Number(claim.subsidy_amount || 0), 0))} />
-        </section>
+        {tab !== "stats" ? (
+          <section className="metric-grid" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+            <Metric 
+              label="申請中人數" 
+              value={new Set(
+                scope.claims
+                  .filter(c => receiptById(scope.receipts, c.receipt_id)?.status === "submitted")
+                  .map(c => c.profile_id)
+              ).size.toString()} 
+            />
+            <Metric label="申請中單據" value={scope.receipts.filter((receipt) => receipt.status === "submitted").length.toString()} />
+            <Metric label="總收據請款金額" value={money(scope.claims.filter((claim) => receiptById(scope.receipts, claim.receipt_id)?.status === "submitted").reduce((sum, claim) => sum + Number(claim.claimed_amount || 0), 0))} />
+            <Metric label="總可請款金額" value={money(scope.claims.filter((claim) => receiptById(scope.receipts, claim.receipt_id)?.status === "submitted").reduce((sum, claim) => sum + Number(claim.subsidy_amount || 0), 0))} />
+          </section>
+        ) : null}
 
         {tab === "receipts" ? (
           <section className="panel">
@@ -192,9 +225,9 @@ export default function DepartmentAdminPage() {
               attachmentsByReceipt={attachmentsByReceipt}
               profilesById={profilesById}
               departmentsById={departmentsById}
-              onPaid={(id) => markReceipts([id], "paid")}
+              onPaid={(id) => markReceipts([id], "settled")}
               onRejected={(id) => markReceipts([id], "rejected")}
-              onDelete={deleteReceipt}
+              onRollback={(id) => markReceipts([id], "submitted")}
             />
           </section>
         ) : null}
@@ -202,7 +235,7 @@ export default function DepartmentAdminPage() {
         {tab === "payouts" ? (
           <section className="panel">
             <DataTable
-              headers={["員工", "申請中金額", "待請款金額", ""]}
+              headers={["員工", "申請中金額", "可請款金額", ""]}
               rows={employeeSummaries.map((summary) => [
                 summary.employee.display_name,
                 money(summary.actualTotal),
@@ -217,24 +250,35 @@ export default function DepartmentAdminPage() {
         {tab === "stats" ? (
           <section className="stack">
             <div className="panel">
-              <div className="filters">
-                <label>起日<input type="date" value={filters.start} onChange={(event) => setFilters({ ...filters, start: event.target.value })} /></label>
-                <label>迄日<input type="date" value={filters.end} onChange={(event) => setFilters({ ...filters, end: event.target.value })} /></label>
-                <label>員工<select value={filters.employee} onChange={(event) => setFilters({ ...filters, employee: event.target.value })}><option value="">全部</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.display_name}</option>)}</select></label>
-                <label>狀態<select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">全部</option><option value="submitted">申請中</option><option value="settled">已放款</option><option value="rejected">退單</option></select></label>
-                <a className="primary-btn link-btn" href={`/api/reimbursements/export?${exportQuery}`}><Download size={16} /> 匯出 CSV</a>
-                <a className="ghost-btn link-btn" href={`/api/admin/exports/photos?${exportQuery}`}><FileArchive size={16} /> 匯出照片 ZIP</a>
+              <div className="filters stats-filter-row">
+                <div className="filter-group">
+                  <label>起日<input type="date" className="date-input" value={filters.start} onChange={(event) => setFilters({ ...filters, start: event.target.value })} /></label>
+                  <label>迄日<input type="date" className="date-input" value={filters.end} onChange={(event) => setFilters({ ...filters, end: event.target.value })} /></label>
+                  <label>員工<select value={filters.employee} onChange={(event) => setFilters({ ...filters, employee: event.target.value })}><option value="">全部</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.display_name}</option>)}</select></label>
+                  <label>狀態<select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">全部</option><option value="submitted">申請中</option><option value="settled">已放款</option><option value="rejected">退單</option></select></label>
+                  <button className="primary-btn" style={{ marginTop: "auto" }} onClick={() => {
+                    setCommittedFilters(filters);
+                    setHasSearched(true);
+                  }}>查詢</button>
+                </div>
+                <div className="export-actions">
+                  <a className="primary-btn link-btn" href={`/api/reimbursements/export?${exportQuery}`}><Download size={16} /> 匯出 CSV</a>
+                  <a className="ghost-btn link-btn" href={`/api/admin/exports/photos?${exportQuery}`}><FileArchive size={16} /> 匯出照片 ZIP</a>
+                </div>
               </div>
             </div>
-            <div className="panel">
-              <ReceiptTable
-                receipts={filteredReceipts}
-                claimsByReceipt={claimsByReceipt}
-                attachmentsByReceipt={attachmentsByReceipt}
-                profilesById={profilesById}
-                departmentsById={departmentsById}
-              />
-            </div>
+            {hasSearched ? (
+              <div className="panel">
+                <ReceiptTable
+                  receipts={filteredReceipts}
+                  claimsByReceipt={claimsByReceipt}
+                  attachmentsByReceipt={attachmentsByReceipt}
+                  profilesById={profilesById}
+                  departmentsById={departmentsById}
+                  isStats={true}
+                />
+              </div>
+            ) : null}
           </section>
         ) : null}
 
@@ -263,8 +307,32 @@ export default function DepartmentAdminPage() {
         <div className="modal-backdrop" role="presentation" onClick={() => setActiveEmployeeId("")}>
           <div className="modal-card wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <div className="panel-title inline-title"><WalletCards size={17} /><h2>{activeEmployee.display_name} 請款管理</h2></div>
-              <button className="icon-btn" title="關閉" onClick={() => setActiveEmployeeId("")}><X size={15} /></button>
+              <div className="panel-title inline-title">
+                <WalletCards size={17} />
+                <h2>{activeEmployee.display_name} 請款管理</h2>
+                <div className="modal-summary-badges">
+                  <span className="badge">總額: {money(activeEmployeeReceipts.reduce((sum, r) => sum + Number(r.total_amount || 0), 0))}</span>
+                  <span className="badge primary">可請款: {money(activeEmployeeReceipts.reduce((sum, r) => {
+                    const claims = claimsByReceipt.get(r.id) ?? [];
+                    return sum + claims.reduce((cSum, c) => cSum + Number(c.subsidy_amount || 0), 0);
+                  }, 0))}</span>
+                </div>
+              </div>
+              <div className="modal-actions">
+                {activeEmployeeReceipts.some(r => r.status === "submitted") ? (
+                  <button 
+                    className="primary-btn compact" 
+                    onClick={() => {
+                      if (window.confirm(`確定要將 ${activeEmployee.display_name} 的所有申請中單據標記為已放款嗎？`)) {
+                        markReceipts(activeEmployeeReceipts.filter(r => r.status === "submitted").map(r => r.id), "settled");
+                      }
+                    }}
+                  >
+                    請款
+                  </button>
+                ) : null}
+                <button className="icon-btn" title="關閉" onClick={() => setActiveEmployeeId("")}><X size={15} /></button>
+              </div>
             </div>
             <ReceiptTable
               receipts={activeEmployeeReceipts}
@@ -272,8 +340,9 @@ export default function DepartmentAdminPage() {
               attachmentsByReceipt={attachmentsByReceipt}
               profilesById={profilesById}
               departmentsById={departmentsById}
-              onPaid={(id) => markReceipts([id], "paid")}
+              onPaid={(id) => markReceipts([id], "settled")}
               onRejected={(id) => markReceipts([id], "rejected")}
+              onRollback={(id) => markReceipts([id], "submitted")}
             />
           </div>
         </div>
@@ -315,7 +384,7 @@ export default function DepartmentAdminPage() {
   );
 }
 
-function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profilesById, departmentsById, onPaid, onRejected, onDelete }: {
+function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profilesById, departmentsById, onPaid, onRejected, onRollback, isStats }: {
   receipts: ReceiptRow[];
   claimsByReceipt: Map<string, Claim[]>;
   attachmentsByReceipt: Map<string, Attachment[]>;
@@ -323,27 +392,63 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
   departmentsById: Map<string, Department>;
   onPaid?: (id: string) => void;
   onRejected?: (id: string) => void;
-  onDelete?: (id: string) => void;
+  onRollback?: (id: string) => void;
+  isStats?: boolean;
 }) {
+  const headers = isStats 
+    ? ["編號", "日期", "項目", "部門", "請款人", "請款人數", "單據總金額", "可請款金額", "照片名稱", ""]
+    : ["編號", "日期", "項目", "部門", "申請人", "請款人", "請款人數", "單據總金額", "可請款金額", "狀態", "照片", ""];
+
   return (
     <DataTable
-      headers={["日期", "部門", "申請人", "單據金額", "請款人", "請款金額", "狀態", "照片", ""]}
-      rows={receipts.map((receipt) => {
+      headers={headers}
+      rows={receipts.map((receipt, index) => {
         const claims = claimsByReceipt.get(receipt.id) ?? [];
         const attachments = attachmentsByReceipt.get(receipt.id) ?? [];
+        
+        if (isStats) {
+          return [
+            index + 1,
+            receipt.receipt_date,
+            "餐費補助",
+            departmentsById.get(receipt.department_id ?? "")?.name ?? "-",
+            claims.map((claim) => profilesById.get(claim.profile_id)?.display_name ?? "-").join("、"),
+            claims.length.toString(),
+            money(Number(receipt.total_amount ?? 0)),
+            money(claims.reduce((sum, claim) => sum + Number(claim.subsidy_amount || 0), 0)),
+            attachments.length ? attachments.map((attachment) => <a key={attachment.id} href={attachment.signed_url ?? "#"} target="_blank">{attachment.file_name ?? attachment.object_path.split("/").pop()}</a>) : "-",
+            null
+          ];
+        }
+
         return [
+          index + 1,
           receipt.receipt_date,
+          "餐費補助",
           departmentsById.get(receipt.department_id ?? "")?.name ?? "-",
           receipt.metadata?.applicant_name ?? profilesById.get(receipt.submitted_by)?.display_name ?? "-",
-          money(Number(receipt.total_amount ?? 0)),
           claims.map((claim) => profilesById.get(claim.profile_id)?.display_name ?? "-").join("、"),
-          money(claims.reduce((sum, claim) => sum + Number(claim.claimed_amount ?? 0), 0)),
+          claims.length.toString(),
+          money(Number(receipt.total_amount ?? 0)),
+          money(claims.reduce((sum, claim) => sum + Number(claim.subsidy_amount || 0), 0)),
           <span className={`status ${receipt.status === "settled" ? "paid" : receipt.status === "rejected" ? "rejected" : "claimed"}`} key="status">{statusLabels[receipt.status] ?? "申請中"}</span>,
           attachments.length ? attachments.map((attachment) => <a key={attachment.id} href={attachment.signed_url ?? "#"} target="_blank">{attachment.file_name ?? attachment.object_path.split("/").pop()}</a>) : "-",
           <div className="row-actions" key="actions">
-            {onPaid && receipt.status !== "settled" ? <button className="ghost-btn compact" onClick={() => onPaid(receipt.id)}>已放款</button> : null}
+            {onPaid && receipt.status === "submitted" ? <button className="ghost-btn compact" onClick={() => onPaid(receipt.id)}>請款</button> : null}
             {onRejected && receipt.status === "submitted" ? <button className="ghost-btn compact" onClick={() => onRejected(receipt.id)}>退單</button> : null}
-            {onDelete ? <button className="icon-btn" title="刪除" onClick={() => onDelete(receipt.id)}><Trash2 size={14} /></button> : null}
+            {onRollback && receipt.status === "settled" ? (
+              <button 
+                className="ghost-btn compact" 
+                style={{ color: "var(--accent)" }} 
+                onClick={() => {
+                  if (window.confirm("確定要收回此單據嗎？狀態將變回申請中。")) {
+                    onRollback(receipt.id);
+                  }
+                }}
+              >
+                收回
+              </button>
+            ) : null}
           </div>
         ];
       })}

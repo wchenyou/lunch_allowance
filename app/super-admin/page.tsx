@@ -54,7 +54,7 @@ export default function SuperAdminPage() {
   const [savingAccount, setSavingAccount] = useState(false);
   const [savingDepartment, setSavingDepartment] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
-  const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "" });
+  const [passwordForm, setPasswordForm] = useState({ next_password: "", confirm_password: "" });
 
   const selectableDepartments = useMemo(() => visibleDepartments(departments).filter((department) => department.active), [departments]);
   const listedDepartments = useMemo(() => visibleDepartments(departments), [departments]);
@@ -165,17 +165,21 @@ export default function SuperAdminPage() {
   async function changePassword(event: FormEvent) {
     event.preventDefault();
     setMessage("");
+    if (passwordForm.next_password !== passwordForm.confirm_password) {
+      setMessage("兩次密碼輸入不一致");
+      return;
+    }
     const response = await fetch("/api/employee/password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(passwordForm)
+      body: JSON.stringify({ next_password: passwordForm.next_password })
     });
     const body = await response.json();
     if (!response.ok) {
       setMessage(body.error || "密碼更新失敗");
       return;
     }
-    setPasswordForm({ current_password: "", next_password: "" });
+    setPasswordForm({ next_password: "", confirm_password: "" });
     setPasswordModalOpen(false);
     setMessage("密碼已更新");
   }
@@ -441,8 +445,8 @@ export default function SuperAdminPage() {
         </section>
       </main>
       {departmentModalOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={closeDepartmentModal}>
-          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="department-modal-title" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-backdrop" role="presentation" onPointerDown={(e) => { if (e.target === e.currentTarget) closeDepartmentModal(); }}>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="department-modal-title">
             <div className="modal-header">
               <div className="panel-title inline-title">
                 <Building2 size={17} />
@@ -476,8 +480,8 @@ export default function SuperAdminPage() {
         </div>
       ) : null}
       {accountModalOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={closeAccountModal}>
-          <div className="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="account-modal-title" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-backdrop" role="presentation" onPointerDown={(e) => { if (e.target === e.currentTarget) closeAccountModal(); }}>
+          <div className="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
             <div className="modal-header">
               <div className="panel-title inline-title">
                 <KeyRound size={17} />
@@ -566,8 +570,8 @@ export default function SuperAdminPage() {
         </div>
       ) : null}
       {passwordModalOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => setPasswordModalOpen(false)}>
-          <div className="modal-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-backdrop" role="presentation" onPointerDown={(e) => { if (e.target === e.currentTarget) setPasswordModalOpen(false); }}>
+          <div className="modal-card" role="dialog" aria-modal="true">
             <div className="modal-header">
               <div className="panel-title inline-title">
                 <KeyRound size={17} />
@@ -579,12 +583,12 @@ export default function SuperAdminPage() {
             </div>
             <form className="form-grid single" onSubmit={changePassword}>
               <label>
-                目前密碼
-                <input type="password" value={passwordForm.current_password} onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })} />
-              </label>
-              <label>
                 新密碼
                 <input type="password" minLength={8} value={passwordForm.next_password} onChange={(event) => setPasswordForm({ ...passwordForm, next_password: event.target.value })} required />
+              </label>
+              <label>
+                確認新密碼
+                <input type="password" minLength={8} value={passwordForm.confirm_password} onChange={(event) => setPasswordForm({ ...passwordForm, confirm_password: event.target.value })} required />
               </label>
               <div className="form-actions">
                 <button type="button" className="ghost-btn" onClick={() => setPasswordModalOpen(false)}>

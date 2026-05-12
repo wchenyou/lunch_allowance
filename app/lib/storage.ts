@@ -110,7 +110,7 @@ const toAttachment = (attachment: any): ReceiptAttachment => ({
 async function readSupabase(): Promise<Database> {
   const supabase = createSupabaseAdminClient();
   const [profiles, receipts, claims, attachments] = await Promise.all([
-    supabase.from("profiles").select("*, departments(name)").order("display_name", { ascending: true }),
+    supabase.from("profiles").select("*, departments!profiles_department_id_fkey(name)").order("display_name", { ascending: true }),
     supabase.from("receipts").select("*").order("receipt_date", { ascending: false }).order("created_at", { ascending: false }),
     supabase.from("receipt_claims").select("*").order("claim_date", { ascending: false }).order("created_at", { ascending: true }),
     supabase.from("receipt_attachments").select("*").order("created_at", { ascending: true })

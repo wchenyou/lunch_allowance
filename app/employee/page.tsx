@@ -1,10 +1,10 @@
 "use client";
 
-import { Camera, CheckCircle2, KeyRound, LogOut, ReceiptText, Upload, UsersRound } from "lucide-react";
+import { Camera, CheckCircle2, KeyRound, LogOut, Menu, ReceiptText, Upload, UsersRound, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { DAILY_SUBSIDY_LIMIT } from "@/app/lib/domain";
+import { DAILY_SUBSIDY_LIMIT, Department } from "@/app/lib/domain";
 import { createSupabaseBrowserClient } from "@/app/lib/supabase/client";
 import type { Employee, Receipt, ReceiptAttachment } from "@/app/lib/types";
 
@@ -12,15 +12,16 @@ const money = (value: number) => new Intl.NumberFormat("zh-TW", { style: "curren
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 type ClaimInput = { employee_id: string; amount: string };
-type Summary = { submittedTotal: number; paidTotal: number; unpaidTotal: number };
+type Summary = { submittedTotal: number; paidTotal: number; unpaidTotal: number; pendingCount: number; pendingTotalAmount: number; pendingClaimableAmount: number };
 
 export default function EmployeeReceiptPage() {
   const router = useRouter();
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [allowedClaimants, setAllowedClaimants] = useState<Employee[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [attachments, setAttachments] = useState<ReceiptAttachment[]>([]);
-  const [summary, setSummary] = useState<Summary>({ submittedTotal: 0, paidTotal: 0, unpaidTotal: 0 });
+  const [summary, setSummary] = useState<Summary>({ submittedTotal: 0, paidTotal: 0, unpaidTotal: 0, pendingCount: 0, pendingTotalAmount: 0, pendingClaimableAmount: 0 });
   const [form, setForm] = useState({
     date: todayIso(),
     merchant: "",
@@ -32,8 +33,11 @@ export default function EmployeeReceiptPage() {
   const [claimInputs, setClaimInputs] = useState<ClaimInput[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
-  const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "" });
-  const [activeTab, setActiveTab] = useState<"upload" | "status" | "password">("upload");
+  const [passwordForm, setPasswordForm] = useState({ next_password: "", confirm_password: "" });
+  
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
 
   useEffect(() => {
     refresh();
@@ -45,9 +49,10 @@ export default function EmployeeReceiptPage() {
     const currentEmployee = data.employees?.[0] ?? null;
     setEmployee(currentEmployee);
     setAllowedClaimants(data.allowedClaimants ?? data.employees ?? []);
+    setDepartments(data.departments ?? []);
     setReceipts(data.receipts ?? []);
     setAttachments(data.attachments ?? []);
-    setSummary(data.summary ?? { submittedTotal: 0, paidTotal: 0, unpaidTotal: 0 });
+    setSummary(data.summary ?? { submittedTotal: 0, paidTotal: 0, unpaidTotal: 0, pendingCount: 0, pendingTotalAmount: 0, pendingClaimableAmount: 0 });
     if (currentEmployee) {
       setClaimInputs((current) => current.length ? current : [{ employee_id: currentEmployee.employee_id, amount: "" }]);
     }
@@ -72,6 +77,17 @@ export default function EmployeeReceiptPage() {
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/");
+  }
+
+  async function handleDeleteReceipt(receiptId: string) {
+    if (!confirm("確定要刪除這張單據嗎？")) return;
+    const response = await fetch(`/api/employee/receipts/${receiptId}`, { method: "DELETE" });
+    if (!response.ok) {
+      const body = await response.json();
+      alert(body.error || "刪除失敗");
+      return;
+    }
+    await refresh();
   }
 
   async function submitReceipt(event: FormEvent) {
@@ -120,11 +136,12 @@ export default function EmployeeReceiptPage() {
     if (receipt?.receipt_id) {
       await uploadReceiptImage(receipt.receipt_id, imageFile);
     }
-    setMessage("已送出給行政審核");
+    setMessage("");
     setForm((current) => ({ ...current, merchant: "", receipt_no: "", total_amount: "", note: "" }));
     setImageFile(null);
     setIsMultiClaim(false);
     setClaimInputs([{ employee_id: employee.employee_id, amount: "" }]);
+    setUploadModalOpen(false);
     await refresh();
   }
 
@@ -163,18 +180,23 @@ export default function EmployeeReceiptPage() {
   async function changePassword(event: FormEvent) {
     event.preventDefault();
     setMessage("");
+    if (passwordForm.next_password !== passwordForm.confirm_password) {
+      setMessage("兩次密碼輸入不一致");
+      return;
+    }
     const response = await fetch("/api/employee/password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(passwordForm)
+      body: JSON.stringify({ next_password: passwordForm.next_password })
     });
     const body = await response.json();
     if (!response.ok) {
       setMessage(body.error || "密碼更新失敗");
       return;
     }
-    setPasswordForm({ current_password: "", next_password: "" });
-    setMessage("密碼已更新");
+    setPasswordForm({ next_password: "", confirm_password: "" });
+    setMessage("");
+    setPasswordModalOpen(false);
   }
 
   function getDayOfWeek(dateString: string) {
@@ -185,66 +207,149 @@ export default function EmployeeReceiptPage() {
   }
 
   return (
-    <main className="mobile-shell">
-      <section className="mobile-screen" style={{ paddingBottom: "24px" }}>
-        <header className="mobile-header">
+    <main className="mobile-shell" onClick={() => setIsMenuOpen(false)}>
+      <section className="mobile-screen" style={{ paddingBottom: "24px" }} onClick={(e) => e.stopPropagation()}>
+        <header className="mobile-header" style={{ position: "relative", marginBottom: "24px" }}>
           <div>
-            <p className="eyebrow">員工端 / 手機優先</p>
-            <h1>午餐收據上傳</h1>
+            <h1 style={{ margin: 0, fontSize: "20px" }}>{employee?.name ? `${employee.name} - ` : ""}單據列表</h1>
           </div>
-          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-            <div className="mobile-avatar">{employee?.name?.[0] ?? "午"}</div>
-            <button className="icon-btn" onClick={handleLogout} title="登出">
-              <LogOut size={16} />
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <button 
+              className="ghost-btn compact"
+              onClick={() => { setUploadModalOpen(true); setMessage(""); }}
+              style={{ borderRadius: "8px" }}
+            >
+              <Camera size={15} />
+              上傳單據
             </button>
+            <div style={{ position: "relative" }}>
+              <button className="icon-btn" style={{ borderRadius: "8px" }} onClick={(e) => { e.stopPropagation(); setIsMenuOpen(!isMenuOpen); }}>
+                <Menu size={16} />
+              </button>
+              {isMenuOpen && (
+                <div style={{
+                  position: "absolute",
+                  top: "calc(100% + 8px)",
+                  right: 0,
+                  background: "var(--panel)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "8px",
+                  padding: "8px",
+                  display: "grid",
+                  gap: "4px",
+                  minWidth: "150px",
+                  zIndex: 50,
+                  boxShadow: "0 8px 32px rgba(0,0,0,0.4)"
+                }}>
+                  <button className="nav-btn" onClick={() => { setPasswordModalOpen(true); setMessage(""); setIsMenuOpen(false); }} style={{ borderRadius: "6px" }}>
+                    <KeyRound size={16} /> 更改密碼
+                  </button>
+                  <button className="nav-btn" onClick={handleLogout} style={{ borderRadius: "6px" }}>
+                    <LogOut size={16} /> 登出
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
-        <div style={{ display: "flex", gap: "8px", marginBottom: "16px", overflowX: "auto", paddingBottom: "4px" }}>
-          <button 
-            className={`ghost-btn ${activeTab === "upload" ? "active" : ""}`} 
-            onClick={() => setActiveTab("upload")}
-            style={activeTab === "upload" ? { background: "rgba(16, 185, 129, 0.14)", color: "var(--text)", borderColor: "rgba(16, 185, 129, 0.4)" } : {}}
-          >
-            <Camera size={15} />
-            上傳單據
-          </button>
-          <button 
-            className={`ghost-btn ${activeTab === "status" ? "active" : ""}`} 
-            onClick={() => setActiveTab("status")}
-            style={activeTab === "status" ? { background: "rgba(16, 185, 129, 0.14)", color: "var(--text)", borderColor: "rgba(16, 185, 129, 0.4)" } : {}}
-          >
-            <ReceiptText size={15} />
-            單據狀況
-          </button>
-          <button 
-            className={`ghost-btn ${activeTab === "password" ? "active" : ""}`} 
-            onClick={() => setActiveTab("password")}
-            style={activeTab === "password" ? { background: "rgba(16, 185, 129, 0.14)", color: "var(--text)", borderColor: "rgba(16, 185, 129, 0.4)" } : {}}
-          >
-            <KeyRound size={15} />
-            更改密碼
-          </button>
-        </div>
+        <section className="mobile-summary" style={{ display: "block", padding: "20px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px", width: "100%" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "14px", color: "var(--soft)" }}>待請款單據</span>
+              <strong style={{ fontSize: "18px", margin: 0 }}>{summary.pendingCount} 筆</strong>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "14px", color: "var(--soft)" }}>單據總金額</span>
+              <strong style={{ fontSize: "18px", margin: 0 }}>{money(summary.pendingTotalAmount)}</strong>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "14px", color: "var(--soft)" }}>可請款總金額</span>
+              <strong style={{ fontSize: "22px", color: "var(--primary)", margin: 0 }}>{money(summary.pendingClaimableAmount)}</strong>
+            </div>
+          </div>
+        </section>
 
-        {activeTab === "upload" && (
-          <>
-            <section className="mobile-summary">
-              <div>
-                <span>已送出 / 已發放 / 未發放</span>
-                <strong>{money(summary.submittedTotal)}</strong>
-                <small>{money(summary.paidTotal)} / {money(summary.unpaidTotal)}</small>
+        <section className="password-panel" style={{ marginTop: 0 }}>
+          <div className="mini-list">
+            {receipts.map((receipt) => {
+              const claimNames = receipt.claimant_names?.length ? receipt.claimant_names.join("、") : employee?.name ?? "-";
+              const attachment = receiptAttachments.get(receipt.receipt_id);
+              const merchant = receipt.merchant || "未填寫店家";
+              const isPending = statusLabel(receipt.reimbursement_status) === "申請中";
+              
+              return (
+                <div className="mini-list-item" key={receipt.receipt_id} style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "stretch", position: "relative" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--text)" }}>
+                      {receipt.date} (星期{getDayOfWeek(receipt.date)})
+                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span style={{ color: isPending ? "var(--accent)" : "var(--soft)", fontSize: "12px", fontWeight: 500, padding: "2px 6px", borderRadius: "4px", background: "var(--bg)" }}>
+                        {statusLabel(receipt.reimbursement_status)}
+                      </span>
+                      {isPending && (
+                        <button 
+                          className="icon-btn" 
+                          style={{ color: "#ef4444", padding: "4px", margin: "-4px" }}
+                          onClick={() => handleDeleteReceipt(receipt.receipt_id)}
+                          title="刪除抽單"
+                        >
+                          <X size={18} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <strong style={{ fontSize: "16px", color: "var(--text)" }}>{merchant}</strong>
+                    <span style={{ fontWeight: 600, color: "var(--text)", fontSize: "15px" }}>{money(receipt.total_amount)}</span>
+                  </div>
+                  
+                  {receipt.claimant_names && receipt.claimant_names.length > 1 && (
+                    <div style={{ fontSize: "13px", color: "var(--soft)" }}>合單人：{claimNames}</div>
+                  )}
+                  
+                  <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+                    {attachment?.signed_url ? (
+                      <button 
+                        className="ghost-btn compact" 
+                        style={{ flex: 1, borderRadius: "6px" }}
+                        onClick={(e) => { e.preventDefault(); window.open(attachment.signed_url, "_blank"); }}
+                      >
+                        查看收據
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+            {!receipts.length ? <p className="form-message">尚未送出單據</p> : null}
+          </div>
+        </section>
+
+      </section>
+
+      {uploadModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onPointerDown={(e) => { if (e.target === e.currentTarget) setUploadModalOpen(false); }}>
+          <div className="modal-card wide" role="dialog" aria-modal="true" style={{ maxHeight: "90vh", overflowY: "auto" }}>
+            <div className="modal-header">
+              <div className="panel-title inline-title">
+                <Camera size={17} />
+                <h2>上傳單據</h2>
               </div>
-              <CheckCircle2 size={22} />
-            </section>
-
-            <form className="mobile-form" onSubmit={submitReceipt}>
+              <button type="button" className="icon-btn" title="關閉" onClick={() => setUploadModalOpen(false)}>
+                <X size={15} />
+              </button>
+            </div>
+            
+            <form className="mobile-form" style={{ padding: 0 }} onSubmit={submitReceipt}>
               <label>
                 申請人
                 <input value={employee?.name ?? ""} disabled style={{ opacity: 0.7, cursor: "not-allowed" }} />
               </label>
               <label>
-                申請日期 (星期{getDayOfWeek(form.date)})
+                單據日期 (星期{getDayOfWeek(form.date)})
                 <input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required />
               </label>
               <label>
@@ -284,86 +389,93 @@ export default function EmployeeReceiptPage() {
 
               {isMultiClaim && (
                 <div className="claim-card">
-                  {activeClaimants.map((claimant) => (
-                    <div className="claimant-row" key={claimant.employee_id}>
-                      <label className="check-row">
-                        <input
-                          type="checkbox"
-                          checked={selectedClaimIds.has(claimant.employee_id)}
-                          disabled={claimant.employee_id === employee?.employee_id}
-                          onChange={(event) => toggleClaimant(claimant.employee_id, event.target.checked)}
-                        />
-                        {claimant.name}
-                      </label>
-                      {selectedClaimIds.has(claimant.employee_id) ? (
-                        <input
-                          type="number"
-                          min="1"
-                          placeholder="請款金額"
-                          value={claimInputs.find((claim) => claim.employee_id === claimant.employee_id)?.amount ?? ""}
-                          onChange={(event) => updateClaimAmount(claimant.employee_id, event.target.value)}
-                          required
-                        />
-                      ) : null}
-                    </div>
-                  ))}
+                  {departments.map((dept) => {
+                    const deptClaimants = activeClaimants.filter(c => c.department_id === dept.id);
+                    if (deptClaimants.length === 0) return null;
+                    return (
+                      <div key={dept.id} style={{ marginBottom: "16px" }}>
+                        <div className="eyebrow" style={{ marginBottom: "8px", color: "var(--primary)" }}>{dept.name}</div>
+                        {deptClaimants.map((claimant) => (
+                          <div className="claimant-row" key={claimant.employee_id}>
+                            <label className="check-row">
+                              <input
+                                type="checkbox"
+                                checked={selectedClaimIds.has(claimant.employee_id)}
+                                disabled={claimant.employee_id === employee?.employee_id}
+                                onChange={(event) => toggleClaimant(claimant.employee_id, event.target.checked)}
+                              />
+                              {claimant.name}
+                            </label>
+                            {selectedClaimIds.has(claimant.employee_id) ? (
+                              <input
+                                type="number"
+                                min="1"
+                                placeholder="請款金額"
+                                value={claimInputs.find((claim) => claim.employee_id === claimant.employee_id)?.amount ?? ""}
+                                onChange={(event) => updateClaimAmount(claimant.employee_id, event.target.value)}
+                                required
+                              />
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
                   <p>每人每日最多兩張單據，合併補助上限 {money(DAILY_SUBSIDY_LIMIT)}。</p>
                 </div>
               )}
 
               {message ? <p className="form-message">{message}</p> : null}
 
-              <button className="primary-btn wide" type="submit">
-                <ReceiptText size={17} />
-                送出給行政審核
-              </button>
+              <div className="form-actions" style={{ marginTop: "16px" }}>
+                <button type="button" className="ghost-btn" onClick={() => setUploadModalOpen(false)}>
+                  取消
+                </button>
+                <button className="primary-btn" type="submit">
+                  <ReceiptText size={17} />
+                  送出單據
+                </button>
+              </div>
             </form>
-          </>
-        )}
+          </div>
+        </div>
+      ) : null}
 
-        {activeTab === "status" && (
-          <section className="password-panel" style={{ marginTop: 0 }}>
-            <div className="mobile-section-title">
-              <ReceiptText size={16} />
-              <span>我的單據狀態</span>
+      {passwordModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onPointerDown={(e) => { if (e.target === e.currentTarget) setPasswordModalOpen(false); }}>
+          <div className="modal-card" role="dialog" aria-modal="true">
+            <div className="modal-header">
+              <div className="panel-title inline-title">
+                <KeyRound size={17} />
+                <h2>更改登入密碼</h2>
+              </div>
+              <button type="button" className="icon-btn" title="關閉" onClick={() => setPasswordModalOpen(false)}>
+                <X size={15} />
+              </button>
             </div>
-            <div className="mini-list">
-              {receipts.map((receipt) => {
-                const claimNames = receipt.claimant_names?.length ? receipt.claimant_names.join("、") : employee?.name ?? "-";
-                const attachment = receiptAttachments.get(receipt.receipt_id);
-                return (
-                  <div className="mini-list-item" key={receipt.receipt_id}>
-                    <strong>{receipt.date} {money(receipt.total_amount)}</strong>
-                    <span>{claimNames} · {statusLabel(receipt.reimbursement_status)}</span>
-                    {attachment?.signed_url ? <a href={attachment.signed_url} target="_blank">查看照片</a> : null}
-                  </div>
-                );
-              })}
-              {!receipts.length ? <p className="form-message">尚未送出單據</p> : null}
-            </div>
-          </section>
-        )}
+            <form className="form-grid single" onSubmit={changePassword}>
+              {message ? <p className="form-message">{message}</p> : null}
+              <label>
+                新密碼
+                <input type="password" minLength={8} value={passwordForm.next_password} onChange={(event) => setPasswordForm({ ...passwordForm, next_password: event.target.value })} required />
+              </label>
+              <label>
+                確認新密碼
+                <input type="password" minLength={8} value={passwordForm.confirm_password} onChange={(event) => setPasswordForm({ ...passwordForm, confirm_password: event.target.value })} required />
+              </label>
+              <div className="form-actions" style={{ marginTop: "16px" }}>
+                <button type="button" className="ghost-btn" onClick={() => setPasswordModalOpen(false)}>
+                  取消
+                </button>
+                <button className="primary-btn" type="submit">
+                  更新密碼
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
 
-        {activeTab === "password" && (
-          <form className="mobile-form password-panel" style={{ marginTop: 0 }} onSubmit={changePassword}>
-            <div className="mobile-section-title">
-              <KeyRound size={16} />
-              <span>更改登入密碼</span>
-            </div>
-            <label>
-              目前密碼
-              <input type="password" value={passwordForm.current_password} onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })} />
-            </label>
-            <label>
-              新密碼
-              <input type="password" minLength={8} value={passwordForm.next_password} onChange={(event) => setPasswordForm({ ...passwordForm, next_password: event.target.value })} required />
-            </label>
-            <button className="ghost-btn wide" type="submit">
-              更新密碼
-            </button>
-          </form>
-        )}
-      </section>
     </main>
   );
 }

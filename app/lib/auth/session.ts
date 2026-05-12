@@ -9,6 +9,7 @@ export type AppSession = {
   role: AppRole;
   departmentIds: string[];
   displayName: string;
+  account?: string;
 };
 
 function secret() {

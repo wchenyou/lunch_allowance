@@ -234,6 +234,25 @@ h2 {
   justify-content: flex-start;
 }
 
+.stats-filter-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 20px;
+}
+
+.filter-group {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex: 1;
+}
+
+.export-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -266,6 +285,11 @@ select {
 input:focus,
 select:focus {
   border-color: rgba(113, 112, 255, 0.65);
+}
+
+.date-input::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
 }
 
 .multi-select {
@@ -550,6 +574,39 @@ td {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 4px;
+}
+
+.modal-summary-badges {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 8px;
+}
+
+.badge {
+  display: inline-flex;
+  padding: 4px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.badge.primary {
+  background: rgba(113, 112, 255, 0.1);
+  border-color: rgba(113, 112, 255, 0.3);
+  color: var(--accent);
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
   gap: 12px;
 }
 

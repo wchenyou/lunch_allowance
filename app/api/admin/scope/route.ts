@@ -25,20 +25,17 @@ export async function GET() {
 
   const [departments, profiles, receipts] = await Promise.all([departmentQuery, profileQuery, receiptQuery]);
   const receiptIds = (receipts.data ?? []).map((receipt) => receipt.id);
-  const [claims, attachments, permissions] = await Promise.all([
+  const [claims, attachments] = await Promise.all([
     receiptIds.length ? supabase.from("receipt_claims").select("*").in("receipt_id", receiptIds) : Promise.resolve({ data: [], error: null }),
-    receiptIds.length ? supabase.from("receipt_attachments").select("*").in("receipt_id", receiptIds) : Promise.resolve({ data: [], error: null }),
-    departmentIds?.length
-      ? supabase.from("claimant_permissions").select("*").in("department_id", departmentIds)
-      : supabase.from("claimant_permissions").select("*")
+    receiptIds.length ? supabase.from("receipt_attachments").select("*").in("receipt_id", receiptIds) : Promise.resolve({ data: [], error: null })
   ]);
-  const error = departments.error ?? profiles.error ?? receipts.error ?? claims.error ?? attachments.error ?? permissions.error;
+  const error = departments.error ?? profiles.error ?? receipts.error ?? claims.error ?? attachments.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const bucket = process.env.RECEIPT_IMAGE_BUCKET || RECEIPT_IMAGE_BUCKET;
   let attachmentsWithUrls = (attachments.data ?? []).map((attachment) => ({
     ...attachment,
     file_name: attachment.object_path.split("/").pop(),
-    signed_url: null as string | null
+    signed_url: undefined as string | undefined
   }));
 
   if (attachmentsWithUrls.length > 0) {
@@ -48,7 +45,7 @@ export async function GET() {
       const urlMap = new Map(signedUrlsData.map((d) => [d.path, d.signedUrl]));
       attachmentsWithUrls = attachmentsWithUrls.map((attachment) => ({
         ...attachment,
-        signed_url: urlMap.get(attachment.object_path) ?? null
+        signed_url: urlMap.get(attachment.object_path) ?? undefined
       }));
     }
   }
@@ -57,7 +54,6 @@ export async function GET() {
     profiles: profiles.data ?? [],
     receipts: receipts.data ?? [],
     claims: claims.data ?? [],
-    attachments: attachmentsWithUrls,
-    claimantPermissions: permissions.data ?? []
+    attachments: attachmentsWithUrls
   });
 }

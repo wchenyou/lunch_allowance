@@ -7,22 +7,12 @@ export async function POST(request: Request) {
   const guard = await requireSession(["employee", "department_admin", "super_admin"]);
   if (guard.response) return guard.response;
   const input = await request.json();
-  const currentPassword = String(input.current_password ?? "");
   const nextPassword = String(input.next_password ?? "");
   if (nextPassword.length < 8) return NextResponse.json({ error: "新密碼至少需要 8 個字元" }, { status: 400 });
 
   const supabase = createSupabaseAdminClient();
   const { data: profile, error } = await supabase.from("profiles").select("id, password_hash").eq("id", guard.session!.profileId).single();
   if (error || !profile) return NextResponse.json({ error: error?.message ?? "Profile not found" }, { status: 404 });
-  const { data: credential } = await supabase
-    .from("profile_credentials")
-    .select("password_hash")
-    .eq("profile_id", profile.id)
-    .maybeSingle();
-  const currentHash = credential?.password_hash ?? profile.password_hash;
-  if (currentHash && !(await verifyPassword(currentPassword, currentHash))) {
-    return NextResponse.json({ error: "目前密碼錯誤" }, { status: 401 });
-  }
 
   const passwordHash = await hashPassword(nextPassword);
   const { error: updateError } = await supabase

@@ -25,16 +25,18 @@ export async function GET(request: Request) {
   if (error) return new Response(error.message, { status: 500 });
   const receipts = (data ?? []).filter((receipt: any) => !employee || receipt.submitted_by === employee || receipt.receipt_claims?.some((claim: any) => claim.profile_id === employee));
   const lines = [
-    ["日期", "部門", "申請人名稱", "單據金額", "請款人名稱", "請款金額", "單據狀態", "單據照片名稱"],
-    ...receipts.map((receipt: any) => {
+    ["編號", "日期", "項目", "部門", "請款人名稱", "請款人數", "單據金額", "可請款金額", "單據狀態", "單據照片名稱"],
+    ...receipts.map((receipt: any, index: number) => {
       const claims = receipt.receipt_claims ?? [];
       const attachments = receipt.receipt_attachments ?? [];
       return [
+        index + 1,
         receipt.receipt_date,
+        "餐費補助",
         receipt.departments?.name ?? "",
-        receipt.metadata?.applicant_name ?? "",
-        Number(receipt.total_amount ?? 0),
         claims.map((claim: any) => claim.profiles?.display_name ?? "").filter(Boolean).join("、"),
+        claims.length,
+        Number(receipt.total_amount ?? 0),
         claims.reduce((sum: number, claim: any) => sum + Number(claim.claimed_amount ?? 0), 0),
         statusLabel(receipt.status),
         attachments.map((attachment: any) => attachment.object_path?.split("/").pop()).filter(Boolean).join("、")

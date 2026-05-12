@@ -27,15 +27,38 @@ export async function POST(request: Request) {
   }
   const allocationIds = [...new Set<string>(allocations.map((allocation: any) => String(allocation.employee_id)))];
   if (!allocationIds.includes(profileId)) allocationIds.unshift(profileId);
-
   try {
     const supabase = createSupabaseAdminClient();
-    const { data: permissions, error: permissionError } = await supabase
-      .from("claimant_permissions")
-      .select("claimant_profile_id")
-      .eq("employee_profile_id", guard.session!.profileId);
-    if (permissionError) throw permissionError;
-    const allowedIds = new Set([guard.session!.profileId, ...(permissions ?? []).map((permission) => permission.claimant_profile_id)]);
+    const myProfile = await supabase.from("profiles").select("department_id").eq("id", guard.session!.profileId).single();
+    const myDeptId = myProfile.data?.department_id;
+
+    const { data: myDeptAdmins } = await supabase
+      .from("department_admin_departments")
+      .select("admin_profile_id")
+      .eq("department_id", myDeptId);
+    
+    const adminIds = new Set((myDeptAdmins ?? []).map(s => s.admin_profile_id));
+    adminIds.add(guard.session!.profileId);
+    
+    const { data: allManagedScopes } = await supabase
+      .from("department_admin_departments")
+      .select("department_id")
+      .in("admin_profile_id", Array.from(adminIds));
+    
+    const targetDeptIds = new Set<string>();
+    if (myDeptId) targetDeptIds.add(myDeptId); 
+    
+    if (allManagedScopes) {
+      for (const scope of allManagedScopes) {
+        if (scope.department_id) targetDeptIds.add(scope.department_id);
+      }
+    }
+
+    console.log("[Receipt POST] profileId:", guard.session!.profileId, "myDeptId:", myDeptId, "targetDeptIds:", Array.from(targetDeptIds));
+
+    const { data: validProfiles } = await supabase.from("profiles").select("id").in("department_id", Array.from(targetDeptIds));
+    const allowedIds = new Set([guard.session!.profileId, ...(validProfiles ?? []).map(p => p.id)]);
+
     if (allocationIds.some((id) => !allowedIds.has(id))) {
       return NextResponse.json({ error: "只能選擇行政維護允許的請款人" }, { status: 403 });
     }
