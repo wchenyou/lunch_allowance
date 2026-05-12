@@ -1,7 +1,8 @@
 "use client";
 
-import { Building2, ClipboardList, Download, FileArchive, ReceiptText, Trash2, UsersRound, WalletCards, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Building2, ClipboardList, Download, FileArchive, KeyRound, LogOut, ReceiptText, Trash2, UsersRound, WalletCards, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { Department, Profile } from "@/app/lib/domain";
 
@@ -37,11 +38,14 @@ type AdminScope = {
 const statusLabels: Record<string, string> = { submitted: "申請中", settled: "已放款", rejected: "退單" };
 
 export default function DepartmentAdminPage() {
+  const router = useRouter();
   const [scope, setScope] = useState<AdminScope>({ departments: [], profiles: [], receipts: [], claims: [], attachments: [], claimantPermissions: [] });
   const [tab, setTab] = useState<Tab>("receipts");
   const [message, setMessage] = useState("");
   const [activeEmployeeId, setActiveEmployeeId] = useState("");
   const [filters, setFilters] = useState({ start: "", end: "", employee: "", status: "" });
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "" });
 
   useEffect(() => {
     refresh();
@@ -119,6 +123,29 @@ export default function DepartmentAdminPage() {
     if (response.ok) await refresh();
   }
 
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/");
+  }
+
+  async function changePassword(event: FormEvent) {
+    event.preventDefault();
+    setMessage("");
+    const response = await fetch("/api/employee/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(passwordForm)
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      setMessage(body.error || "密碼更新失敗");
+      return;
+    }
+    setPasswordForm({ current_password: "", next_password: "" });
+    setPasswordModalOpen(false);
+    setMessage("密碼已更新");
+  }
+
   const exportQuery = new URLSearchParams(filters).toString();
 
   return (
@@ -137,6 +164,10 @@ export default function DepartmentAdminPage() {
           <NavButton active={tab === "stats"} icon={<ReceiptText size={16} />} label="單據統計" onClick={() => setTab("stats")} />
           <NavButton active={tab === "permissions"} icon={<UsersRound size={16} />} label="合單名單" onClick={() => setTab("permissions")} />
         </nav>
+        <div style={{ marginTop: "auto" }}>
+          <NavButton active={false} icon={<KeyRound size={16} />} label="更改密碼" onClick={() => setPasswordModalOpen(true)} />
+          <NavButton active={false} icon={<LogOut size={16} />} label="登出" onClick={handleLogout} />
+        </div>
       </aside>
       <main className="workspace">
         <header className="topbar">
@@ -244,6 +275,39 @@ export default function DepartmentAdminPage() {
               onPaid={(id) => markReceipts([id], "paid")}
               onRejected={(id) => markReceipts([id], "rejected")}
             />
+          </div>
+        </div>
+      ) : null}
+      {passwordModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setPasswordModalOpen(false)}>
+          <div className="modal-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div className="panel-title inline-title">
+                <KeyRound size={17} />
+                <h2>更改登入密碼</h2>
+              </div>
+              <button className="icon-btn" title="關閉" onClick={() => setPasswordModalOpen(false)}>
+                <X size={15} />
+              </button>
+            </div>
+            <form className="form-grid single" onSubmit={changePassword}>
+              <label>
+                目前密碼
+                <input type="password" value={passwordForm.current_password} onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })} />
+              </label>
+              <label>
+                新密碼
+                <input type="password" minLength={8} value={passwordForm.next_password} onChange={(event) => setPasswordForm({ ...passwordForm, next_password: event.target.value })} required />
+              </label>
+              <div className="form-actions">
+                <button type="button" className="ghost-btn" onClick={() => setPasswordModalOpen(false)}>
+                  取消
+                </button>
+                <button className="primary-btn" type="submit">
+                  更新密碼
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       ) : null}

@@ -1,7 +1,8 @@
 "use client";
 
-import { Camera, CheckCircle2, KeyRound, ReceiptText, Upload, UsersRound } from "lucide-react";
+import { Camera, CheckCircle2, KeyRound, LogOut, ReceiptText, Upload, UsersRound } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { DAILY_SUBSIDY_LIMIT } from "@/app/lib/domain";
 import { createSupabaseBrowserClient } from "@/app/lib/supabase/client";
@@ -14,6 +15,7 @@ type ClaimInput = { employee_id: string; amount: string };
 type Summary = { submittedTotal: number; paidTotal: number; unpaidTotal: number };
 
 export default function EmployeeReceiptPage() {
+  const router = useRouter();
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [allowedClaimants, setAllowedClaimants] = useState<Employee[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
@@ -26,10 +28,12 @@ export default function EmployeeReceiptPage() {
     total_amount: "",
     note: ""
   });
+  const [isMultiClaim, setIsMultiClaim] = useState(false);
   const [claimInputs, setClaimInputs] = useState<ClaimInput[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
   const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "" });
+  const [activeTab, setActiveTab] = useState<"upload" | "status" | "password">("upload");
 
   useEffect(() => {
     refresh();
@@ -65,6 +69,11 @@ export default function EmployeeReceiptPage() {
     setClaimInputs((current) => current.map((claim) => (claim.employee_id === employeeId ? { ...claim, amount } : claim)));
   }
 
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/");
+  }
+
   async function submitReceipt(event: FormEvent) {
     event.preventDefault();
     if (!employee) return;
@@ -74,12 +83,18 @@ export default function EmployeeReceiptPage() {
     }
     setMessage("");
     const totalAmount = Number(form.total_amount);
-    const validClaims = claimInputs
-      .map((claim) => ({ employee_id: claim.employee_id, amount: Number(claim.amount) }))
-      .filter((claim) => claim.employee_id && Number.isFinite(claim.amount) && claim.amount > 0);
-    if (!validClaims.some((claim) => claim.employee_id === employee.employee_id)) {
-      setMessage("請款人必須包含申請人自己");
-      return;
+    
+    let validClaims;
+    if (isMultiClaim) {
+      validClaims = claimInputs
+        .map((claim) => ({ employee_id: claim.employee_id, amount: Number(claim.amount) }))
+        .filter((claim) => claim.employee_id && Number.isFinite(claim.amount) && claim.amount > 0);
+      if (!validClaims.some((claim) => claim.employee_id === employee.employee_id)) {
+        setMessage("請款人必須包含申請人自己");
+        return;
+      }
+    } else {
+      validClaims = [{ employee_id: employee.employee_id, amount: totalAmount }];
     }
 
     const response = await fetch("/api/employee/receipts", {
@@ -108,6 +123,7 @@ export default function EmployeeReceiptPage() {
     setMessage("已送出給行政審核");
     setForm((current) => ({ ...current, merchant: "", receipt_no: "", total_amount: "", note: "" }));
     setImageFile(null);
+    setIsMultiClaim(false);
     setClaimInputs([{ employee_id: employee.employee_id, amount: "" }]);
     await refresh();
   }
@@ -161,146 +177,192 @@ export default function EmployeeReceiptPage() {
     setMessage("密碼已更新");
   }
 
+  function getDayOfWeek(dateString: string) {
+    if (!dateString) return "";
+    const [y, m, d] = dateString.split("-");
+    const dateObj = new Date(Number(y), Number(m) - 1, Number(d));
+    return ["日", "一", "二", "三", "四", "五", "六"][dateObj.getDay()];
+  }
+
   return (
     <main className="mobile-shell">
-      <section className="mobile-screen">
+      <section className="mobile-screen" style={{ paddingBottom: "24px" }}>
         <header className="mobile-header">
           <div>
             <p className="eyebrow">員工端 / 手機優先</p>
             <h1>午餐收據上傳</h1>
           </div>
-          <div className="mobile-avatar">午</div>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            <div className="mobile-avatar">{employee?.name?.[0] ?? "午"}</div>
+            <button className="icon-btn" onClick={handleLogout} title="登出">
+              <LogOut size={16} />
+            </button>
+          </div>
         </header>
 
-        <section className="mobile-summary">
-          <div>
-            <span>已送出 / 已發放 / 未發放</span>
-            <strong>{money(summary.submittedTotal)}</strong>
-            <small>{money(summary.paidTotal)} / {money(summary.unpaidTotal)}</small>
-          </div>
-          <CheckCircle2 size={22} />
-        </section>
+        <div style={{ display: "flex", gap: "8px", marginBottom: "16px", overflowX: "auto", paddingBottom: "4px" }}>
+          <button 
+            className={`ghost-btn ${activeTab === "upload" ? "active" : ""}`} 
+            onClick={() => setActiveTab("upload")}
+            style={activeTab === "upload" ? { background: "rgba(16, 185, 129, 0.14)", color: "var(--text)", borderColor: "rgba(16, 185, 129, 0.4)" } : {}}
+          >
+            <Camera size={15} />
+            上傳單據
+          </button>
+          <button 
+            className={`ghost-btn ${activeTab === "status" ? "active" : ""}`} 
+            onClick={() => setActiveTab("status")}
+            style={activeTab === "status" ? { background: "rgba(16, 185, 129, 0.14)", color: "var(--text)", borderColor: "rgba(16, 185, 129, 0.4)" } : {}}
+          >
+            <ReceiptText size={15} />
+            單據狀況
+          </button>
+          <button 
+            className={`ghost-btn ${activeTab === "password" ? "active" : ""}`} 
+            onClick={() => setActiveTab("password")}
+            style={activeTab === "password" ? { background: "rgba(16, 185, 129, 0.14)", color: "var(--text)", borderColor: "rgba(16, 185, 129, 0.4)" } : {}}
+          >
+            <KeyRound size={15} />
+            更改密碼
+          </button>
+        </div>
 
-        <form className="mobile-form" onSubmit={submitReceipt}>
-          <label>
-            申請人
-            <input value={employee?.name ?? ""} readOnly />
-          </label>
-          <label>
-            申請日期
-            <input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required />
-          </label>
-          <label>
-            店家
-            <input placeholder="例如：福勝亭" value={form.merchant} onChange={(event) => setForm({ ...form, merchant: event.target.value })} />
-          </label>
-          <label>
-            發票號碼
-            <input placeholder="AB-12345678" value={form.receipt_no} onChange={(event) => setForm({ ...form, receipt_no: event.target.value })} />
-          </label>
-          <label>
-            單據總金額
-            <input type="number" min="1" value={form.total_amount} onChange={(event) => setForm({ ...form, total_amount: event.target.value })} required />
-          </label>
-          <label>
-            備註
-            <input value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
-          </label>
-
-          <label className="upload-zone">
-            <Camera size={26} />
-            <div>
-              <strong>{imageFile ? imageFile.name : "拍照或上傳單據"}</strong>
-              <span>送出時會自動壓縮並命名照片。</span>
-            </div>
-            <Upload size={16} />
-            <input className="visually-hidden" type="file" accept="image/*" capture="environment" onChange={(event) => setImageFile(event.target.files?.[0] ?? null)} />
-          </label>
-
-          <div className="mobile-section-title">
-            <UsersRound size={16} />
-            <span>請款人與金額</span>
-          </div>
-          <div className="claim-card">
-            {activeClaimants.map((claimant) => (
-              <div className="claimant-row" key={claimant.employee_id}>
-                <label className="check-row">
-                  <input
-                    type="checkbox"
-                    checked={selectedClaimIds.has(claimant.employee_id)}
-                    disabled={claimant.employee_id === employee?.employee_id}
-                    onChange={(event) => toggleClaimant(claimant.employee_id, event.target.checked)}
-                  />
-                  {claimant.name}
-                </label>
-                {selectedClaimIds.has(claimant.employee_id) ? (
-                  <input
-                    type="number"
-                    min="1"
-                    placeholder="請款金額"
-                    value={claimInputs.find((claim) => claim.employee_id === claimant.employee_id)?.amount ?? ""}
-                    onChange={(event) => updateClaimAmount(claimant.employee_id, event.target.value)}
-                    required
-                  />
-                ) : null}
+        {activeTab === "upload" && (
+          <>
+            <section className="mobile-summary">
+              <div>
+                <span>已送出 / 已發放 / 未發放</span>
+                <strong>{money(summary.submittedTotal)}</strong>
+                <small>{money(summary.paidTotal)} / {money(summary.unpaidTotal)}</small>
               </div>
-            ))}
-            <p>每人每日最多兩張單據，合併補助上限 {money(DAILY_SUBSIDY_LIMIT)}。</p>
-          </div>
+              <CheckCircle2 size={22} />
+            </section>
 
-          {message ? <p className="form-message">{message}</p> : null}
+            <form className="mobile-form" onSubmit={submitReceipt}>
+              <label>
+                申請人
+                <input value={employee?.name ?? ""} disabled style={{ opacity: 0.7, cursor: "not-allowed" }} />
+              </label>
+              <label>
+                申請日期 (星期{getDayOfWeek(form.date)})
+                <input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required />
+              </label>
+              <label>
+                店家 (選填)
+                <input placeholder="例如：福勝亭" value={form.merchant} onChange={(event) => setForm({ ...form, merchant: event.target.value })} />
+              </label>
+              <label>
+                發票號碼 (選填)
+                <input placeholder="AB-12345678" value={form.receipt_no} onChange={(event) => setForm({ ...form, receipt_no: event.target.value })} />
+              </label>
+              <label>
+                單據總金額 (必填)
+                <input type="number" min="1" value={form.total_amount} onChange={(event) => setForm({ ...form, total_amount: event.target.value })} required />
+              </label>
+              <label>
+                備註 (選填)
+                <input value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
+              </label>
 
-          <button className="primary-btn wide">
-            <ReceiptText size={17} />
-            送出給行政審核
-          </button>
-        </form>
-
-        <section className="password-panel">
-          <div className="mobile-section-title">
-            <ReceiptText size={16} />
-            <span>我的單據狀態</span>
-          </div>
-          <div className="mini-list">
-            {receipts.map((receipt) => {
-              const claimNames = receipt.claimant_names?.length ? receipt.claimant_names.join("、") : employee?.name ?? "-";
-              const attachment = receiptAttachments.get(receipt.receipt_id);
-              return (
-                <div className="mini-list-item" key={receipt.receipt_id}>
-                  <strong>{receipt.date} {money(receipt.total_amount)}</strong>
-                  <span>{claimNames} · {statusLabel(receipt.reimbursement_status)}</span>
-                  {attachment?.signed_url ? <a href={attachment.signed_url} target="_blank">查看照片</a> : null}
+              <label className="upload-zone">
+                <Camera size={26} />
+                <div>
+                  <strong>{imageFile ? imageFile.name : "拍照或上傳單據"}</strong>
+                  <span>送出時會自動壓縮並命名照片。</span>
                 </div>
-              );
-            })}
-            {!receipts.length ? <p className="form-message">尚未送出單據</p> : null}
-          </div>
-        </section>
+                <Upload size={16} />
+                <input className="visually-hidden" type="file" accept="image/*" capture="environment" onChange={(event) => setImageFile(event.target.files?.[0] ?? null)} />
+              </label>
 
-        <form className="mobile-form password-panel" onSubmit={changePassword}>
-          <div className="mobile-section-title">
-            <KeyRound size={16} />
-            <span>更改登入密碼</span>
-          </div>
-          <label>
-            目前密碼
-            <input type="password" value={passwordForm.current_password} onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })} />
-          </label>
-          <label>
-            新密碼
-            <input type="password" minLength={8} value={passwordForm.next_password} onChange={(event) => setPasswordForm({ ...passwordForm, next_password: event.target.value })} required />
-          </label>
-          <button className="ghost-btn wide" type="submit">
-            更新密碼
-          </button>
-        </form>
+              <div className="mobile-section-title" style={{ marginTop: "12px", marginBottom: "4px" }}>
+                <UsersRound size={16} />
+                <label className="check-row" style={{ color: "var(--soft)", fontSize: "14px", margin: 0, fontWeight: 500, cursor: "pointer" }}>
+                  <input type="checkbox" checked={isMultiClaim} onChange={(e) => setIsMultiClaim(e.target.checked)} />
+                  多人合單
+                </label>
+              </div>
 
-        <nav className="mobile-tabs">
-          <Link className="active" href="/employee">
-            <Camera size={17} />
-            上傳
-          </Link>
-        </nav>
+              {isMultiClaim && (
+                <div className="claim-card">
+                  {activeClaimants.map((claimant) => (
+                    <div className="claimant-row" key={claimant.employee_id}>
+                      <label className="check-row">
+                        <input
+                          type="checkbox"
+                          checked={selectedClaimIds.has(claimant.employee_id)}
+                          disabled={claimant.employee_id === employee?.employee_id}
+                          onChange={(event) => toggleClaimant(claimant.employee_id, event.target.checked)}
+                        />
+                        {claimant.name}
+                      </label>
+                      {selectedClaimIds.has(claimant.employee_id) ? (
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="請款金額"
+                          value={claimInputs.find((claim) => claim.employee_id === claimant.employee_id)?.amount ?? ""}
+                          onChange={(event) => updateClaimAmount(claimant.employee_id, event.target.value)}
+                          required
+                        />
+                      ) : null}
+                    </div>
+                  ))}
+                  <p>每人每日最多兩張單據，合併補助上限 {money(DAILY_SUBSIDY_LIMIT)}。</p>
+                </div>
+              )}
+
+              {message ? <p className="form-message">{message}</p> : null}
+
+              <button className="primary-btn wide" type="submit">
+                <ReceiptText size={17} />
+                送出給行政審核
+              </button>
+            </form>
+          </>
+        )}
+
+        {activeTab === "status" && (
+          <section className="password-panel" style={{ marginTop: 0 }}>
+            <div className="mobile-section-title">
+              <ReceiptText size={16} />
+              <span>我的單據狀態</span>
+            </div>
+            <div className="mini-list">
+              {receipts.map((receipt) => {
+                const claimNames = receipt.claimant_names?.length ? receipt.claimant_names.join("、") : employee?.name ?? "-";
+                const attachment = receiptAttachments.get(receipt.receipt_id);
+                return (
+                  <div className="mini-list-item" key={receipt.receipt_id}>
+                    <strong>{receipt.date} {money(receipt.total_amount)}</strong>
+                    <span>{claimNames} · {statusLabel(receipt.reimbursement_status)}</span>
+                    {attachment?.signed_url ? <a href={attachment.signed_url} target="_blank">查看照片</a> : null}
+                  </div>
+                );
+              })}
+              {!receipts.length ? <p className="form-message">尚未送出單據</p> : null}
+            </div>
+          </section>
+        )}
+
+        {activeTab === "password" && (
+          <form className="mobile-form password-panel" style={{ marginTop: 0 }} onSubmit={changePassword}>
+            <div className="mobile-section-title">
+              <KeyRound size={16} />
+              <span>更改登入密碼</span>
+            </div>
+            <label>
+              目前密碼
+              <input type="password" value={passwordForm.current_password} onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })} />
+            </label>
+            <label>
+              新密碼
+              <input type="password" minLength={8} value={passwordForm.next_password} onChange={(event) => setPasswordForm({ ...passwordForm, next_password: event.target.value })} required />
+            </label>
+            <button className="ghost-btn wide" type="submit">
+              更新密碼
+            </button>
+          </form>
+        )}
       </section>
     </main>
   );

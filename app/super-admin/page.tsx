@@ -1,6 +1,7 @@
 "use client";
 
-import { Building2, Edit3, KeyRound, Plus, ShieldCheck, Trash2, UsersRound, X } from "lucide-react";
+import { Building2, Edit3, KeyRound, LogOut, Plus, ShieldCheck, Trash2, UsersRound, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { visibleDepartments } from "@/app/lib/departments";
 import type { AppRole, Department, Profile } from "@/app/lib/domain";
@@ -41,6 +42,7 @@ const roleLabels: Record<AppRole, string> = {
 };
 
 export default function SuperAdminPage() {
+  const router = useRouter();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [departmentScopes, setDepartmentScopes] = useState<ScopeRow[]>([]);
@@ -51,6 +53,8 @@ export default function SuperAdminPage() {
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [savingAccount, setSavingAccount] = useState(false);
   const [savingDepartment, setSavingDepartment] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "" });
 
   const selectableDepartments = useMemo(() => visibleDepartments(departments).filter((department) => department.active), [departments]);
   const listedDepartments = useMemo(() => visibleDepartments(departments), [departments]);
@@ -151,6 +155,29 @@ export default function SuperAdminPage() {
     const body = await response.json();
     setMessage(response.ok ? "帳號已停用" : body.error || "帳號停用失敗");
     if (response.ok) await refresh();
+  }
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/");
+  }
+
+  async function changePassword(event: FormEvent) {
+    event.preventDefault();
+    setMessage("");
+    const response = await fetch("/api/employee/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(passwordForm)
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      setMessage(body.error || "密碼更新失敗");
+      return;
+    }
+    setPasswordForm({ current_password: "", next_password: "" });
+    setPasswordModalOpen(false);
+    setMessage("密碼已更新");
   }
 
   function openNewDepartment() {
@@ -312,6 +339,16 @@ export default function SuperAdminPage() {
             權限總覽
           </a>
         </nav>
+        <div style={{ marginTop: "auto", display: "grid", gap: "4px" }}>
+          <button className="nav-btn" onClick={() => setPasswordModalOpen(true)}>
+            <KeyRound size={16} />
+            更改密碼
+          </button>
+          <button className="nav-btn" onClick={handleLogout}>
+            <LogOut size={16} />
+            登出
+          </button>
+        </div>
       </aside>
 
       <main className="workspace">
@@ -523,6 +560,39 @@ export default function SuperAdminPage() {
                   取消
                 </button>
                 <button className="primary-btn" type="submit" disabled={savingAccount}>{savingAccount ? "儲存中..." : "儲存帳號"}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+      {passwordModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setPasswordModalOpen(false)}>
+          <div className="modal-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div className="panel-title inline-title">
+                <KeyRound size={17} />
+                <h2>更改登入密碼</h2>
+              </div>
+              <button className="icon-btn" title="關閉" onClick={() => setPasswordModalOpen(false)}>
+                <X size={15} />
+              </button>
+            </div>
+            <form className="form-grid single" onSubmit={changePassword}>
+              <label>
+                目前密碼
+                <input type="password" value={passwordForm.current_password} onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })} />
+              </label>
+              <label>
+                新密碼
+                <input type="password" minLength={8} value={passwordForm.next_password} onChange={(event) => setPasswordForm({ ...passwordForm, next_password: event.target.value })} required />
+              </label>
+              <div className="form-actions">
+                <button type="button" className="ghost-btn" onClick={() => setPasswordModalOpen(false)}>
+                  取消
+                </button>
+                <button className="primary-btn" type="submit">
+                  更新密碼
+                </button>
               </div>
             </form>
           </div>
