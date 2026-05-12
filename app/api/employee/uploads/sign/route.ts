@@ -24,6 +24,7 @@ export async function POST(request: Request) {
   const profileId = String(input.profile_id ?? "").trim();
   const receiptId = String(input.receipt_id ?? "pending").trim();
   const contentType = String(input.content_type ?? "image/jpeg").trim();
+  const fileName = String(input.file_name ?? `${randomUUID()}.${safeExtension(contentType)}`).replace(/[^a-zA-Z0-9_.-]/g, "_");
 
   if (!profileId) {
     return NextResponse.json({ error: "profile_id is required" }, { status: 400 });
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const objectPath = `${profileId}/${receiptId}/${randomUUID()}.${safeExtension(contentType)}`;
+  const objectPath = `${profileId}/${receiptId}/${fileName}`;
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase.storage.from(process.env.RECEIPT_IMAGE_BUCKET || RECEIPT_IMAGE_BUCKET).createSignedUploadUrl(objectPath);
 

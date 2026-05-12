@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/app/lib/api/guards";
+import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 import { upsertReceipt } from "@/app/lib/storage";
 
 export async function POST(request: Request) {
@@ -19,13 +20,48 @@ export async function POST(request: Request) {
   if (guard.session!.role === "employee" && profileId !== guard.session!.profileId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  if (allocations.some((allocation: any) => allocation.employee_id !== guard.session!.profileId)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
 
   const invalidAllocation = allocations.some((allocation: any) => !allocation.employee_id || Number(allocation.amount) <= 0);
   if (invalidAllocation) {
     return NextResponse.json({ error: "Each claim requires employee_id and positive amount" }, { status: 400 });
+  }
+  const allocationIds = [...new Set<string>(allocations.map((allocation: any) => String(allocation.employee_id)))];
+  if (!allocationIds.includes(profileId)) allocationIds.unshift(profileId);
+
+  try {
+    const supabase = createSupabaseAdminClient();
+    const { data: permissions, error: permissionError } = await supabase
+      .from("claimant_permissions")
+      .select("claimant_profile_id")
+      .eq("employee_profile_id", guard.session!.profileId);
+    if (permissionError) throw permissionError;
+    const allowedIds = new Set([guard.session!.profileId, ...(permissions ?? []).map((permission) => permission.claimant_profile_id)]);
+    if (allocationIds.some((id) => !allowedIds.has(id))) {
+      return NextResponse.json({ error: "只能選擇行政維護允許的請款人" }, { status: 403 });
+    }
+
+    const { data: existingClaims, error: claimError } = await supabase
+      .from("receipt_claims")
+      .select("receipt_id, profile_id, receipts(status)")
+      .in("profile_id", allocationIds)
+      .eq("claim_date", date);
+    if (claimError) throw claimError;
+    const counts = new Map<string, Set<string>>();
+    for (const rawClaim of existingClaims ?? []) {
+      const claim = rawClaim as any;
+      const status = Array.isArray(claim.receipts) ? claim.receipts[0]?.status : claim.receipts?.status;
+      if (status === "rejected" || status === "void") continue;
+      const receiptIds = counts.get(claim.profile_id) ?? new Set<string>();
+      receiptIds.add(claim.receipt_id);
+      counts.set(claim.profile_id, receiptIds);
+    }
+    const blockedId = allocationIds.find((id) => (counts.get(id)?.size ?? 0) >= 2);
+    if (blockedId) {
+      return NextResponse.json({ error: "同一位員工同一天最多只能送出兩張單據" }, { status: 400 });
+    }
+  } catch (error) {
+    if (error instanceof Response) throw error;
+    return NextResponse.json({ error: error instanceof Error ? error.message : "無法驗證請款權限" }, { status: 500 });
   }
 
   try {
@@ -39,7 +75,8 @@ export async function POST(request: Request) {
       reimbursement_status: "pending",
       allocations
     });
-    return NextResponse.json(db);
+    const receipt = db.receipts.find((item) => item.date === date && item.payer_employee_id === profileId && item.total_amount === totalAmount) ?? db.receipts[0];
+    return NextResponse.json({ ...db, receipt });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to submit receipt" }, { status: 500 });
   }

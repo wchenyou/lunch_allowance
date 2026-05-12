@@ -281,6 +281,19 @@ select option {
   color: #0f1011;
 }
 
+fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+legend {
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .allocations,
 .form-actions {
   grid-column: 1 / -1;
@@ -393,6 +406,11 @@ td {
   color: var(--soft);
 }
 
+.wrap-cell {
+  min-width: 220px;
+  white-space: normal;
+}
+
 .status {
   display: inline-flex;
   padding: 3px 8px;
@@ -411,12 +429,22 @@ td {
   border-color: rgba(245, 165, 36, 0.45);
 }
 
+.status.rejected {
+  color: #ff7b7b;
+  border-color: rgba(255, 123, 123, 0.45);
+}
+
 .empty {
   padding: 28px;
   color: var(--muted);
   text-align: center;
   border: 1px dashed var(--border);
   border-radius: 8px;
+}
+
+.empty.compact {
+  padding: 14px;
+  font-size: 12px;
 }
 
 .search-box {
@@ -444,6 +472,40 @@ td {
 .check-row input {
   width: 16px;
   min-height: 16px;
+}
+
+.checkbox-fieldset {
+  grid-column: 1 / -1;
+}
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.check-tile {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  padding: 9px 10px;
+  color: var(--soft);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+}
+
+.check-tile input {
+  width: 16px;
+  min-height: 16px;
+  flex: 0 0 auto;
+}
+
+.check-tile span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .toast {
@@ -607,6 +669,13 @@ td {
   font-size: 26px;
 }
 
+.mobile-summary small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .mobile-form {
   display: grid;
   gap: 12px;
@@ -642,6 +711,38 @@ td {
   gap: 10px;
 }
 
+.claimant-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 8px;
+  align-items: center;
+}
+
+.mini-list {
+  display: grid;
+  gap: 8px;
+}
+
+.mini-list-item {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+}
+
+.mini-list-item strong,
+.mini-list-item a {
+  color: var(--soft);
+  font-size: 13px;
+}
+
+.mini-list-item span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .password-panel {
   margin-top: 16px;
   padding: 14px;
@@ -659,6 +760,15 @@ td {
   width: 100%;
   min-height: 46px;
   margin-top: 4px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .mobile-tabs {
@@ -699,6 +809,36 @@ td {
   gap: 10px;
 }
 
+.role-sections {
+  display: grid;
+  gap: 18px;
+}
+
+.role-section {
+  display: grid;
+  gap: 10px;
+}
+
+.role-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px;
+}
+
+.role-section-header h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 590;
+}
+
+.role-section-header span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .role-item {
   justify-content: space-between;
   gap: 14px;
@@ -719,6 +859,20 @@ td {
 
 .scope-item {
   align-items: stretch;
+}
+
+.permission-list {
+  display: grid;
+  gap: 12px;
+}
+
+.permission-card {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
 }
 
 @media (max-width: 980px) {

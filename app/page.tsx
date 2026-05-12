@@ -434,7 +434,7 @@ function ReceiptRows({
   onEdit: (receipt: Receipt) => void;
   onDelete: (id: string) => void;
 }) {
-  const statusLabel: Record<ReimbursementStatus, string> = { pending: "未請款", claimed: "已請款", paid: "已結清" };
+  const statusLabel: Record<ReimbursementStatus, string> = { pending: "申請中", claimed: "已請款", paid: "已放款", rejected: "退單" };
   return (
     <DataTable
       headers={["日期", "付款人", "店家", "總金額", "分攤合計", "狀態", ""]}

@@ -172,6 +172,7 @@ export function buildReimbursementReport(db: Database, start = "", end = ""): Re
 }
 
 export function normalizeStatus(status: string | undefined): ReimbursementStatus {
-  if (status === "claimed" || status === "paid") return status;
+  if (status === "paid" || status === "settled" || status === "claimed" || status === "approved") return "paid";
+  if (status === "rejected") return "rejected";
   return "pending";
 }

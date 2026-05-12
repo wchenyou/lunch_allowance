@@ -19,7 +19,6 @@ type AccountForm = {
   password: string;
   department_ids: string[];
 };
-type RoleFilter = "all" | AppRole;
 
 const emptyDepartmentForm: DepartmentForm = { id: "", code: "", name: "", active: true };
 const emptyAccountForm: AccountForm = {
@@ -41,13 +40,6 @@ const roleLabels: Record<AppRole, string> = {
   employee: "員工"
 };
 
-const roleFilterOptions: { value: RoleFilter; label: string }[] = [
-  { value: "all", label: "全部" },
-  { value: "super_admin", label: "最高權限" },
-  { value: "department_admin", label: "部門行政" },
-  { value: "employee", label: "員工" }
-];
-
 export default function SuperAdminPage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -57,14 +49,16 @@ export default function SuperAdminPage() {
   const [accountForm, setAccountForm] = useState<AccountForm>(emptyAccountForm);
   const [departmentModalOpen, setDepartmentModalOpen] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
-  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
 
   const selectableDepartments = useMemo(() => visibleDepartments(departments).filter((department) => department.active), [departments]);
   const listedDepartments = useMemo(() => visibleDepartments(departments), [departments]);
-  const departmentAdmins = useMemo(() => profiles.filter((profile) => (profile.app_role ?? profile.role) === "department_admin"), [profiles]);
-  const listedProfiles = useMemo(
-    () => profiles.filter((profile) => roleFilter === "all" || (profile.app_role ?? profile.role) === roleFilter),
-    [profiles, roleFilter]
+  const profilesByRole = useMemo(
+    () => ({
+      super_admin: profiles.filter((profile) => normalizedRole(profile) === "super_admin"),
+      department_admin: profiles.filter((profile) => normalizedRole(profile) === "department_admin"),
+      employee: profiles.filter((profile) => normalizedRole(profile) === "employee")
+    }),
+    [profiles]
   );
 
   useEffect(() => {
@@ -73,9 +67,9 @@ export default function SuperAdminPage() {
 
   async function refresh() {
     const [departmentResponse, accountResponse, scopeResponse] = await Promise.all([
-      fetch("/api/super-admin/departments"),
-      fetch("/api/super-admin/accounts"),
-      fetch("/api/super-admin/admin-scopes")
+      fetch("/api/super-admin/departments", { cache: "no-store" }),
+      fetch("/api/super-admin/accounts", { cache: "no-store" }),
+      fetch("/api/super-admin/admin-scopes", { cache: "no-store" })
     ]);
     const [departmentBody, accountBody, scopeBody] = await Promise.all([departmentResponse.json(), accountResponse.json(), scopeResponse.json()]);
     setDepartments(departmentBody.departments ?? []);
@@ -94,7 +88,7 @@ export default function SuperAdminPage() {
     setMessage(response.ok ? "部門已儲存" : body.error || "部門儲存失敗");
     if (response.ok) {
       closeDepartmentModal();
-      refresh();
+      await refresh();
     }
   }
 
@@ -106,7 +100,7 @@ export default function SuperAdminPage() {
     });
     const body = await response.json();
     setMessage(response.ok ? "部門已停用" : body.error || "部門停用失敗");
-    if (response.ok) refresh();
+    if (response.ok) await refresh();
   }
 
   async function saveAccount(event: FormEvent) {
@@ -121,7 +115,7 @@ export default function SuperAdminPage() {
     setMessage(response.ok ? "帳號已儲存" : body.error || "帳號儲存失敗");
     if (response.ok) {
       closeAccountModal();
-      refresh();
+      await refresh();
     }
   }
 
@@ -133,18 +127,7 @@ export default function SuperAdminPage() {
     });
     const body = await response.json();
     setMessage(response.ok ? "帳號已停用" : body.error || "帳號停用失敗");
-    if (response.ok) refresh();
-  }
-
-  async function saveScope(adminProfileId: string, departmentIds: string[]) {
-    const response = await fetch("/api/super-admin/admin-scopes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ admin_profile_id: adminProfileId, department_ids: departmentIds })
-    });
-    const body = await response.json();
-    setMessage(response.ok ? "管理部門已更新" : body.error || "管理部門更新失敗");
-    if (response.ok) refresh();
+    if (response.ok) await refresh();
   }
 
   function openNewDepartment() {
@@ -193,6 +176,15 @@ export default function SuperAdminPage() {
     setAccountModalOpen(false);
   }
 
+  function toggleManagedDepartment(departmentId: string, checked: boolean) {
+    setAccountForm((current) => {
+      const nextDepartmentIds = checked
+        ? [...new Set([...current.department_ids, departmentId])]
+        : current.department_ids.filter((id) => id !== departmentId);
+      return { ...current, department_ids: nextDepartmentIds };
+    });
+  }
+
   function scopesFor(adminProfileId: string) {
     return departmentScopes
       .filter((scope) => scope.admin_profile_id === adminProfileId && scope.department_id)
@@ -208,6 +200,68 @@ export default function SuperAdminPage() {
     if (role === "admin" || role === "super_admin") return roleLabels.super_admin;
     if (role === "hr" || role === "manager" || role === "department_admin") return roleLabels.department_admin;
     return roleLabels.employee;
+  }
+
+  function normalizedRole(profile: Profile): AppRole {
+    const role = profile.app_role ?? profile.role;
+    if (role === "admin" || role === "super_admin") return "super_admin";
+    if (role === "hr" || role === "manager" || role === "department_admin") return "department_admin";
+    return "employee";
+  }
+
+  function managedDepartmentNames(profile: Profile) {
+    const scopeIds = scopesFor(profile.id);
+    return scopeIds.length ? scopeIds.map(departmentName).join(", ") : "尚未設定";
+  }
+
+  function renderProfileRows(role: AppRole) {
+    return profilesByRole[role].map((profile) => (
+      <tr key={profile.id}>
+        <td>{profile.display_name}</td>
+        <td>{roleName(profile.app_role ?? profile.role)}</td>
+        <td>{departmentName(profile.department_id)}</td>
+        {role === "department_admin" ? <td className="wrap-cell">{managedDepartmentNames(profile)}</td> : null}
+        <td>{profile.active && !profile.login_disabled_at ? "啟用" : "停用"}</td>
+        <td>
+          <div className="row-actions">
+            <button className="icon-btn" title="編輯" onClick={() => editAccount(profile)}>
+              <Edit3 size={14} />
+            </button>
+            <button className="icon-btn" title="停用" onClick={() => deleteAccount(profile.id)}>
+              <Trash2 size={14} />
+            </button>
+          </div>
+        </td>
+      </tr>
+    ));
+  }
+
+  function renderRoleSection(role: AppRole) {
+    const rows = profilesByRole[role];
+    return (
+      <div className="role-section" key={role}>
+        <div className="role-section-header">
+          <h3>{roleLabels[role]}</h3>
+          <span>{rows.length} 人</span>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>姓名</th>
+                <th>角色</th>
+                <th>所屬部門</th>
+                {role === "department_admin" ? <th>可管理部門</th> : null}
+                <th>狀態</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>{renderProfileRows(role)}</tbody>
+          </table>
+          {!rows.length ? <div className="empty compact">尚未建立{roleLabels[role]}帳號</div> : null}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -247,7 +301,7 @@ export default function SuperAdminPage() {
             <strong>{profiles.length}</strong>
           </div>
           <div className="metric">
-            <span>行政部門 scope</span>
+            <span>管理部門授權</span>
             <strong>{departmentScopes.length}</strong>
           </div>
         </section>
@@ -309,82 +363,10 @@ export default function SuperAdminPage() {
                   新增帳號
                 </button>
               </div>
-              <div className="filters">
-                <label className="filter-field">
-                  層級類型
-                  <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}>
-                    {roleFilterOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>姓名</th>
-                      <th>角色</th>
-                      <th>所屬部門</th>
-                      <th>狀態</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {listedProfiles.map((profile) => (
-                      <tr key={profile.id}>
-                        <td>{profile.display_name}</td>
-                        <td>{roleName(profile.app_role ?? profile.role)}</td>
-                        <td>{departmentName(profile.department_id)}</td>
-                        <td>{profile.active && !profile.login_disabled_at ? "啟用" : "停用"}</td>
-                        <td>
-                          <div className="row-actions">
-                            <button className="icon-btn" title="編輯" onClick={() => editAccount(profile)}>
-                              <Edit3 size={14} />
-                            </button>
-                            <button className="icon-btn" title="停用" onClick={() => deleteAccount(profile.id)}>
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {!listedProfiles.length ? <div className="empty">沒有符合此層級的帳號</div> : null}
-              </div>
-            </div>
-
-            <div className="panel">
-              <div className="panel-title">
-                <UsersRound size={17} />
-                <h2>行政與部門 scope</h2>
-              </div>
-              <div className="role-list">
-                {departmentAdmins.map((admin) => {
-                  const scopeIds = scopesFor(admin.id);
-                  return (
-                    <div className="role-item scope-item" key={admin.id}>
-                      <strong>{admin.display_name}</strong>
-                      <span>{scopeIds.length ? scopeIds.map(departmentName).join(", ") : "尚未設定部門"}</span>
-                      <select
-                        multiple
-                        className="multi-select compact"
-                        value={scopeIds}
-                        onChange={(event) => saveScope(admin.id, Array.from(event.target.selectedOptions, (option) => option.value))}
-                      >
-                        {selectableDepartments.map((department) => (
-                          <option key={department.id} value={department.id}>
-                            {department.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  );
-                })}
-                {!departmentAdmins.length ? <div className="empty">尚未建立部門行政帳號</div> : null}
+              <div className="role-sections">
+                {renderRoleSection("super_admin")}
+                {renderRoleSection("department_admin")}
+                {renderRoleSection("employee")}
               </div>
             </div>
         </section>
@@ -455,7 +437,13 @@ export default function SuperAdminPage() {
               </label>
               <label>
                 角色
-                <select value={accountForm.app_role} onChange={(event) => setAccountForm({ ...accountForm, app_role: event.target.value as AppRole, department_ids: [] })}>
+                <select
+                  value={accountForm.app_role}
+                  onChange={(event) => {
+                    const nextRole = event.target.value as AppRole;
+                    setAccountForm({ ...accountForm, app_role: nextRole, department_ids: nextRole === "department_admin" ? accountForm.department_ids : [] });
+                  }}
+                >
                   <option value="employee">員工</option>
                   <option value="department_admin">部門行政</option>
                   <option value="super_admin">最高權限</option>
@@ -473,21 +461,22 @@ export default function SuperAdminPage() {
                 </select>
               </label>
               {accountForm.app_role === "department_admin" ? (
-                <label>
-                  可管理部門
-                  <select
-                    multiple
-                    className="multi-select"
-                    value={accountForm.department_ids}
-                    onChange={(event) => setAccountForm({ ...accountForm, department_ids: Array.from(event.target.selectedOptions, (option) => option.value) })}
-                  >
+                <fieldset className="checkbox-fieldset">
+                  <legend>可管理部門</legend>
+                  <div className="checkbox-grid">
                     {selectableDepartments.map((department) => (
-                      <option key={department.id} value={department.id}>
-                        {department.name}
-                      </option>
+                      <label className="check-tile" key={department.id}>
+                        <input
+                          type="checkbox"
+                          checked={accountForm.department_ids.includes(department.id)}
+                          onChange={(event) => toggleManagedDepartment(department.id, event.target.checked)}
+                        />
+                        <span>{department.name}</span>
+                      </label>
                     ))}
-                  </select>
-                </label>
+                    {!selectableDepartments.length ? <div className="empty compact">尚無可設定的啟用部門</div> : null}
+                  </div>
+                </fieldset>
               ) : null}
               <label>
                 {accountForm.id ? "新密碼（留空不變）" : "初始密碼"}

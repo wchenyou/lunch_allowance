@@ -1,8 +1,8 @@
 import { requireSession } from "@/app/lib/api/guards";
-import { buildReimbursementReport } from "@/app/lib/calculations";
-import { readDb } from "@/app/lib/storage";
+import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 
 const csvEscape = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
+const statusLabel = (status: string) => (status === "settled" ? "已放款" : status === "rejected" ? "退單" : "申請中");
 
 export async function GET(request: Request) {
   const guard = await requireSession(["department_admin"]);
@@ -10,33 +10,36 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const start = url.searchParams.get("start") ?? "";
   const end = url.searchParams.get("end") ?? "";
-  const report = buildReimbursementReport(await readDb(), start, end);
+  const employee = url.searchParams.get("employee") ?? "";
+  const status = url.searchParams.get("status") ?? "";
+  const supabase = createSupabaseAdminClient();
+  let query = supabase
+    .from("receipts")
+    .select("*, departments(name), receipt_claims(*, profiles(display_name)), receipt_attachments(*)")
+    .order("receipt_date", { ascending: false });
+  if (guard.session!.departmentIds.length) query = query.in("department_id", guard.session!.departmentIds);
+  if (start) query = query.gte("receipt_date", start);
+  if (end) query = query.lte("receipt_date", end);
+  if (status) query = query.eq("status", status);
+  const { data, error } = await query;
+  if (error) return new Response(error.message, { status: 500 });
+  const receipts = (data ?? []).filter((receipt: any) => !employee || receipt.submitted_by === employee || receipt.receipt_claims?.some((claim: any) => claim.profile_id === employee));
   const lines = [
-    ["type", "date", "payer", "employee", "receipt_id", "merchant", "receipt_no", "allocated_amount", "reimbursable_amount", "status"],
-    ...report.payerSummaries.map((summary) => [
-      "payer_summary",
-      `${start}~${end}`,
-      summary.payer_name,
-      "",
-      "",
-      "",
-      "",
-      "",
-      summary.reimbursable,
-      ""
-    ]),
-    ...report.allocations.map((allocation) => [
-      "allocation",
-      allocation.date,
-      allocation.payer?.name ?? "Unknown",
-      allocation.employee?.name ?? "Unknown",
-      allocation.receipt_id,
-      allocation.receipt.merchant,
-      allocation.receipt.receipt_no,
-      allocation.amount,
-      allocation.reimbursable_amount,
-      allocation.receipt.reimbursement_status
-    ])
+    ["日期", "部門", "申請人名稱", "單據金額", "請款人名稱", "請款金額", "單據狀態", "單據照片名稱"],
+    ...receipts.map((receipt: any) => {
+      const claims = receipt.receipt_claims ?? [];
+      const attachments = receipt.receipt_attachments ?? [];
+      return [
+        receipt.receipt_date,
+        receipt.departments?.name ?? "",
+        receipt.metadata?.applicant_name ?? "",
+        Number(receipt.total_amount ?? 0),
+        claims.map((claim: any) => claim.profiles?.display_name ?? "").filter(Boolean).join("、"),
+        claims.reduce((sum: number, claim: any) => sum + Number(claim.claimed_amount ?? 0), 0),
+        statusLabel(receipt.status),
+        attachments.map((attachment: any) => attachment.object_path?.split("/").pop()).filter(Boolean).join("、")
+      ];
+    })
   ];
   const csv = lines.map((line) => line.map(csvEscape).join(",")).join("\n");
   return new Response(csv, {
