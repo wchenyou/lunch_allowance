@@ -6,6 +6,22 @@ import { isSystemDepartment } from "@/app/lib/departments";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 import { normalizeIds, supabaseErrorResponse } from "../_utils";
 
+type ProfilePayload = {
+  id?: string;
+  employee_no: string | null;
+  display_name: string;
+  email: string | null;
+  phone: string | null;
+  department_id: string | null;
+  role: ReturnType<typeof toLegacyRole>;
+  app_role: (typeof appRoles)[number];
+  active: boolean;
+  login_disabled_at: string | null;
+  onboarded_at: string;
+  password_hash?: string;
+  password_updated_at?: string;
+};
+
 export async function GET() {
   const guard = await requireSession(["super_admin"]);
   if (guard.response) return guard.response;
@@ -22,6 +38,7 @@ export async function POST(request: Request) {
   const guard = await requireSession(["super_admin"]);
   if (guard.response) return guard.response;
   const input = await request.json();
+  const id = String(input.id ?? "").trim();
   const displayName = String(input.display_name ?? "").trim();
   const appRole = appRoles.includes(input.app_role) ? input.app_role : "employee";
   const departmentIds = normalizeIds(input.department_ids);
@@ -41,22 +58,28 @@ export async function POST(request: Request) {
     }
   }
   const passwordHash = input.password ? await hashPassword(String(input.password)) : undefined;
-  const payload = {
-    id: input.id || undefined,
-    employee_no: input.employee_no || null,
+  const payload: ProfilePayload = {
+    id: id || undefined,
+    employee_no: String(input.employee_no ?? "").trim() || null,
     display_name: displayName,
-    email: input.email || null,
-    phone: input.phone || null,
+    email: String(input.email ?? "").trim().toLowerCase() || null,
+    phone: String(input.phone ?? "").trim() || null,
     department_id: primaryDepartmentId || null,
     role: toLegacyRole(appRole),
     app_role: appRole,
     active: input.active ?? true,
     login_disabled_at: input.active === false ? new Date().toISOString() : null,
-    password_hash: passwordHash,
-    password_updated_at: input.password ? new Date().toISOString() : undefined,
     onboarded_at: new Date().toISOString()
   };
-  const { data, error } = await supabase.from("profiles").upsert(payload).select("id, display_name, app_role, department_id, active").single();
+  if (passwordHash) {
+    payload.password_hash = passwordHash;
+    payload.password_updated_at = new Date().toISOString();
+  }
+
+  const profileWrite = id
+    ? await supabase.from("profiles").update(payload).eq("id", id).select("id, display_name, app_role, department_id, active").single()
+    : await supabase.from("profiles").insert(payload).select("id, display_name, app_role, department_id, active").single();
+  const { data, error } = profileWrite;
   if (error) return supabaseErrorResponse("儲存帳號資料", error);
   if (passwordHash) {
     const { error: credentialError } = await supabase.from("profile_credentials").upsert({

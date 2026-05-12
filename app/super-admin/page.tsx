@@ -49,6 +49,8 @@ export default function SuperAdminPage() {
   const [accountForm, setAccountForm] = useState<AccountForm>(emptyAccountForm);
   const [departmentModalOpen, setDepartmentModalOpen] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [savingAccount, setSavingAccount] = useState(false);
+  const [savingDepartment, setSavingDepartment] = useState(false);
 
   const selectableDepartments = useMemo(() => visibleDepartments(departments).filter((department) => department.active), [departments]);
   const listedDepartments = useMemo(() => visibleDepartments(departments), [departments]);
@@ -66,29 +68,43 @@ export default function SuperAdminPage() {
   }, []);
 
   async function refresh() {
-    const [departmentResponse, accountResponse, scopeResponse] = await Promise.all([
-      fetch("/api/super-admin/departments", { cache: "no-store" }),
-      fetch("/api/super-admin/accounts", { cache: "no-store" }),
-      fetch("/api/super-admin/admin-scopes", { cache: "no-store" })
-    ]);
-    const [departmentBody, accountBody, scopeBody] = await Promise.all([departmentResponse.json(), accountResponse.json(), scopeResponse.json()]);
-    setDepartments(departmentBody.departments ?? []);
-    setProfiles(accountBody.profiles ?? []);
-    setDepartmentScopes(scopeBody.departmentScopes ?? []);
+    try {
+      const [departmentResponse, accountResponse, scopeResponse] = await Promise.all([
+        fetch("/api/super-admin/departments", { cache: "no-store" }),
+        fetch("/api/super-admin/accounts", { cache: "no-store" }),
+        fetch("/api/super-admin/admin-scopes", { cache: "no-store" })
+      ]);
+      const [departmentBody, accountBody, scopeBody] = await Promise.all([readJson(departmentResponse), readJson(accountResponse), readJson(scopeResponse)]);
+      if (!departmentResponse.ok) throw new Error(departmentBody.error || "部門資料載入失敗");
+      if (!accountResponse.ok) throw new Error(accountBody.error || "帳號資料載入失敗");
+      if (!scopeResponse.ok) throw new Error(scopeBody.error || "管理範圍載入失敗");
+      setDepartments(departmentBody.departments ?? []);
+      setProfiles(accountBody.profiles ?? []);
+      setDepartmentScopes(scopeBody.departmentScopes ?? []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "資料載入失敗");
+    }
   }
 
   async function saveDepartment(event: FormEvent) {
     event.preventDefault();
-    const response = await fetch("/api/super-admin/departments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(departmentForm)
-    });
-    const body = await response.json();
-    setMessage(response.ok ? "部門已儲存" : body.error || "部門儲存失敗");
-    if (response.ok) {
-      closeDepartmentModal();
-      await refresh();
+    setSavingDepartment(true);
+    try {
+      const response = await fetch("/api/super-admin/departments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(departmentForm)
+      });
+      const body = await readJson(response);
+      setMessage(response.ok ? "部門已儲存" : body.error || "部門儲存失敗");
+      if (response.ok) {
+        closeDepartmentModal();
+        await refresh();
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "部門儲存失敗");
+    } finally {
+      setSavingDepartment(false);
     }
   }
 
@@ -105,17 +121,24 @@ export default function SuperAdminPage() {
 
   async function saveAccount(event: FormEvent) {
     event.preventDefault();
-    const payload = accountForm.app_role === "department_admin" ? accountForm : { ...accountForm, department_ids: [] };
-    const response = await fetch("/api/super-admin/accounts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const body = await response.json();
-    setMessage(response.ok ? "帳號已儲存" : body.error || "帳號儲存失敗");
-    if (response.ok) {
-      closeAccountModal();
-      await refresh();
+    setSavingAccount(true);
+    try {
+      const payload = accountForm.app_role === "department_admin" ? accountForm : { ...accountForm, department_ids: [] };
+      const response = await fetch("/api/super-admin/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const body = await readJson(response);
+      setMessage(response.ok ? "帳號已儲存" : body.error || "帳號儲存失敗");
+      if (response.ok) {
+        await refresh();
+        closeAccountModal();
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "帳號儲存失敗");
+    } finally {
+      setSavingAccount(false);
     }
   }
 
@@ -239,10 +262,13 @@ export default function SuperAdminPage() {
   function renderRoleSection(role: AppRole) {
     const rows = profilesByRole[role];
     return (
-      <div className="role-section" key={role}>
+      <div className={`role-section role-section-${role}`} key={role}>
         <div className="role-section-header">
-          <h3>{roleLabels[role]}</h3>
-          <span>{rows.length} 人</span>
+          <div>
+            <h3>{roleLabels[role]}</h3>
+            <p>{roleDescription(role)}</p>
+          </div>
+          <span className="role-count">{rows.length} 人</span>
         </div>
         <div className="table-wrap">
           <table>
@@ -262,6 +288,12 @@ export default function SuperAdminPage() {
         </div>
       </div>
     );
+  }
+
+  function roleDescription(role: AppRole) {
+    if (role === "super_admin") return "可管理部門、帳號與全域權限";
+    if (role === "department_admin") return "依照勾選部門管理員工與單據";
+    return "手機端送出單據與查看流程狀態";
   }
 
   return (
@@ -400,7 +432,7 @@ export default function SuperAdminPage() {
                 <button type="button" className="ghost-btn" onClick={closeDepartmentModal}>
                   取消
                 </button>
-                <button className="primary-btn">儲存部門</button>
+                <button className="primary-btn" disabled={savingDepartment}>{savingDepartment ? "儲存中..." : "儲存部門"}</button>
               </div>
             </form>
           </div>
@@ -490,7 +522,7 @@ export default function SuperAdminPage() {
                 <button type="button" className="ghost-btn" onClick={closeAccountModal}>
                   取消
                 </button>
-                <button className="primary-btn">儲存帳號</button>
+                <button className="primary-btn" type="submit" disabled={savingAccount}>{savingAccount ? "儲存中..." : "儲存帳號"}</button>
               </div>
             </form>
           </div>
@@ -498,4 +530,14 @@ export default function SuperAdminPage() {
       ) : null}
     </div>
   );
+}
+
+async function readJson(response: Response) {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text };
+  }
 }
