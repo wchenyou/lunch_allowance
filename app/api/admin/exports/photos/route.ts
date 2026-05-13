@@ -6,7 +6,7 @@ import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 const MAX_ZIP_FILES = 200;
 
 export async function GET(request: Request) {
-  const guard = await requireSession(["department_admin"]);
+  const guard = await requireSession(["department_admin", "super_admin"]);
   if (guard.response) return guard.response;
   const url = new URL(request.url);
   const start = url.searchParams.get("start") ?? "";

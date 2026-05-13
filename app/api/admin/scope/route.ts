@@ -7,7 +7,7 @@ const DEFAULT_RECEIPT_LIMIT = 200;
 const MAX_RECEIPT_LIMIT = 500;
 
 export async function GET(request: Request) {
-  const guard = await requireSession(["department_admin"]);
+  const guard = await requireSession(["department_admin", "super_admin"]);
   if (guard.response) return guard.response;
   const session = guard.session!;
   const url = new URL(request.url);
