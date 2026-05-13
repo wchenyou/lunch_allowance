@@ -35,6 +35,8 @@ export default function EmployeeReceiptPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 15;
   const [passwordForm, setPasswordForm] = useState({ next_password: "", confirm_password: "" });
   
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -57,9 +59,10 @@ export default function EmployeeReceiptPage() {
       const bRejected = b.reimbursement_status === "rejected";
       if (aRejected && !bRejected) return -1;
       if (!aRejected && bRejected) return 1;
-      return 0; // Keep original order (usually by date) for items with same status
+      return 0;
     });
     setReceipts(sortedReceipts);
+    setPage(0);
     setAttachments(data.attachments ?? []);
     setSummary(data.summary ?? { submittedTotal: 0, paidTotal: 0, unpaidTotal: 0, pendingCount: 0, pendingTotalAmount: 0, pendingClaimableAmount: 0 });
     if (currentEmployee) {
@@ -286,7 +289,7 @@ export default function EmployeeReceiptPage() {
 
         <section className="password-panel" style={{ marginTop: 0 }}>
           <div className="mini-list">
-            {receipts.map((receipt) => {
+            {receipts.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((receipt) => {
               const claimNames = receipt.claimant_names?.length ? receipt.claimant_names.join("、") : employee?.name ?? "-";
               const attachment = receiptAttachments.get(receipt.receipt_id);
               const merchant = receipt.merchant || "未填寫店家";
@@ -300,7 +303,10 @@ export default function EmployeeReceiptPage() {
                     <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--text)" }}>
                       {receipt.date} (星期{getDayOfWeek(receipt.date)})
                     </span>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ fontSize: "11px", color: "var(--soft)", background: "var(--bg)", padding: "2px 7px", borderRadius: "4px", border: "1px solid var(--border)", fontWeight: 500 }}>
+                        {receipt.category || "餐費補助"}
+                      </span>
                       <span 
                         style={{ 
                           color: isRejected ? "#ef4444" : isPending ? "var(--accent)" : "var(--soft)", 
@@ -329,10 +335,7 @@ export default function EmployeeReceiptPage() {
 
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <strong style={{ fontSize: "16px", color: "var(--text)" }}>{merchant}</strong>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" }}>
-                      <span style={{ fontWeight: 600, color: "var(--text)", fontSize: "15px" }}>{money(receipt.total_amount)}</span>
-                      <span style={{ fontSize: "11px", color: "var(--soft)", background: "var(--bg)", padding: "1px 6px", borderRadius: "4px" }}>{receipt.category || "餐費補助"}</span>
-                    </div>
+                    <span style={{ fontWeight: 600, color: "var(--text)", fontSize: "15px" }}>{money(receipt.total_amount)}</span>
                   </div>
                   
                   {receipt.claimant_names && receipt.claimant_names.length > 1 && (
@@ -354,6 +357,27 @@ export default function EmployeeReceiptPage() {
               );
             })}
             {!receipts.length ? <p className="form-message">尚未送出單據</p> : null}
+            {receipts.length > PAGE_SIZE && (
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "12px", padding: "16px 0 4px" }}>
+                <button
+                  className="ghost-btn compact"
+                  disabled={page === 0}
+                  onClick={() => setPage(p => p - 1)}
+                >
+                  上一頁
+                </button>
+                <span style={{ fontSize: "13px", color: "var(--soft)" }}>
+                  {page + 1} / {Math.ceil(receipts.length / PAGE_SIZE)}
+                </span>
+                <button
+                  className="ghost-btn compact"
+                  disabled={(page + 1) * PAGE_SIZE >= receipts.length}
+                  onClick={() => setPage(p => p + 1)}
+                >
+                  下一頁
+                </button>
+              </div>
+            )}
           </div>
         </section>
 
