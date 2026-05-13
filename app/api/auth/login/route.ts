@@ -191,7 +191,7 @@ async function finishProfileLogin(
 
   const redirectTo = role === "super_admin" ? "/super-admin" : role === "department_admin" ? "/admin" : "/employee";
   const response = NextResponse.json({ ok: true, role, redirect_to: redirectTo, must_change_password: credential?.must_change_password ?? false });
-  response.cookies.set(APP_SESSION_COOKIE, encodeSession({ profileId: profile.id, role, departmentIds, displayName: profile.display_name, account: profile.employee_no || "admin" }), {
+  response.cookies.set(APP_SESSION_COOKIE, encodeSession({ profileId: profile.id, role, departmentIds, displayName: profile.display_name, account: profile.employee_no || profile.display_name }), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

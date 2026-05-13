@@ -55,6 +55,7 @@ export default function SuperAdminPage() {
   const [savingDepartment, setSavingDepartment] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ next_password: "", confirm_password: "" });
+  const [session, setSession] = useState<any>(null);
 
   const selectableDepartments = useMemo(() => visibleDepartments(departments).filter((department) => department.active), [departments]);
   const listedDepartments = useMemo(() => visibleDepartments(departments), [departments]);
@@ -73,18 +74,27 @@ export default function SuperAdminPage() {
 
   async function refresh() {
     try {
-      const [departmentResponse, accountResponse, scopeResponse] = await Promise.all([
+      const [departmentResponse, accountResponse, scopeResponse, sessionResponse] = await Promise.all([
         fetch("/api/super-admin/departments", { cache: "no-store" }),
         fetch("/api/super-admin/accounts", { cache: "no-store" }),
-        fetch("/api/super-admin/admin-scopes", { cache: "no-store" })
+        fetch("/api/super-admin/admin-scopes", { cache: "no-store" }),
+        fetch("/api/auth/session")
       ]);
-      const [departmentBody, accountBody, scopeBody] = await Promise.all([readJson(departmentResponse), readJson(accountResponse), readJson(scopeResponse)]);
+      const [departmentBody, accountBody, scopeBody, sessionBody] = await Promise.all([
+        readJson(departmentResponse),
+        readJson(accountResponse),
+        readJson(scopeResponse),
+        readJson(sessionResponse)
+      ]);
       if (!departmentResponse.ok) throw new Error(departmentBody.error || "部門資料載入失敗");
       if (!accountResponse.ok) throw new Error(accountBody.error || "帳號資料載入失敗");
       if (!scopeResponse.ok) throw new Error(scopeBody.error || "管理範圍載入失敗");
       setDepartments(departmentBody.departments ?? []);
       setProfiles(accountBody.profiles ?? []);
       setDepartmentScopes(scopeBody.departmentScopes ?? []);
+      if (sessionBody.authenticated) {
+        setSession(sessionBody.session);
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "資料載入失敗");
     }
@@ -334,7 +344,7 @@ export default function SuperAdminPage() {
           <div className="brand-mark">權</div>
           <div>
             <strong>最高管理後台</strong>
-            <span>三層角色與部門 scope</span>
+            <span>{session ? (session.displayName || session.account) : "載入中..."}</span>
           </div>
         </div>
         <nav>
