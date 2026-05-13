@@ -70,18 +70,27 @@ export async function POST(request: Request) {
 
     const { data: existingClaims, error: claimError } = await supabase
       .from("receipt_claims")
-      .select("receipt_id, profile_id, receipts(status)")
+      .select("receipt_id, profile_id")
       .in("profile_id", allocationIds)
       .eq("claim_date", date);
     if (claimError) throw claimError;
+
+    // 分開查詢收據狀態，避免巢狀 join 失敗導致整個驗證中斷
+    const existingReceiptIds = [...new Set((existingClaims ?? []).map((c: any) => c.receipt_id))];
+    const { data: receiptStatuses } = existingReceiptIds.length
+      ? await supabase.from("receipts").select("id, status").in("id", existingReceiptIds)
+      : { data: [] };
+    const rejectedIds = new Set(
+      (receiptStatuses ?? []).filter((r: any) => r.status === "rejected" || r.status === "void").map((r: any) => r.id)
+    );
+
     const counts = new Map<string, Set<string>>();
-    for (const rawClaim of existingClaims ?? []) {
-      const claim = rawClaim as any;
-      const status = Array.isArray(claim.receipts) ? claim.receipts[0]?.status : claim.receipts?.status;
-      if (status === "rejected" || status === "void") continue;
-      const receiptIds = counts.get(claim.profile_id) ?? new Set<string>();
-      receiptIds.add(claim.receipt_id);
-      counts.set(claim.profile_id, receiptIds);
+    for (const claim of existingClaims ?? []) {
+      const c = claim as any;
+      if (rejectedIds.has(c.receipt_id)) continue;
+      const receiptIds = counts.get(c.profile_id) ?? new Set<string>();
+      receiptIds.add(c.receipt_id);
+      counts.set(c.profile_id, receiptIds);
     }
     const blockedId = allocationIds.find((id) => (counts.get(id)?.size ?? 0) >= 2);
     if (blockedId) {

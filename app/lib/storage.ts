@@ -233,9 +233,31 @@ async function upsertReceiptSupabase(input: ReceiptInput, receiptId?: string) {
 
 async function deleteReceiptSupabase(receiptId: string) {
   const supabase = createSupabaseAdminClient();
+
+  // 1. 先取得附件路徑，再從 Storage 刪除實際檔案
+  const { data: attachments } = await supabase
+    .from("receipt_attachments")
+    .select("object_path, bucket")
+    .eq("receipt_id", receiptId);
+
+  if (attachments && attachments.length > 0) {
+    const byBucket = new Map<string, string[]>();
+    for (const a of attachments) {
+      const bucket = a.bucket || process.env.RECEIPT_IMAGE_BUCKET || RECEIPT_IMAGE_BUCKET;
+      const paths = byBucket.get(bucket) ?? [];
+      paths.push(a.object_path);
+      byBucket.set(bucket, paths);
+    }
+    await Promise.allSettled(
+      [...byBucket.entries()].map(([bucket, paths]) =>
+        supabase.storage.from(bucket).remove(paths)
+      )
+    );
+  }
+
+  // 2. 刪除資料庫記錄（receipt_attachments 與 receipt_claims 由 FK cascade 自動刪除）
   const { error } = await supabase.from("receipts").delete().eq("id", receiptId);
   if (error) throw new Error(error.message);
-  // No full re-read needed — caller handles its own refresh
 }
 
 async function markReceiptsSupabase(receiptIds: string[], status: string) {
