@@ -45,8 +45,8 @@ export default function DepartmentAdminPage() {
   const [hasSearched, setHasSearched] = useState(false);
   const [message, setMessage] = useState("");
   const [activeEmployeeId, setActiveEmployeeId] = useState("");
-  const [filters, setFilters] = useState({ start: "", end: "", employee: "", status: "" });
-  const [committedFilters, setCommittedFilters] = useState({ start: "", end: "", employee: "", status: "" });
+  const [filters, setFilters] = useState({ start: "", end: "", employee: "", status: "", category: "" });
+  const [committedFilters, setCommittedFilters] = useState({ start: "", end: "", employee: "", status: "", category: "" });
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "" });
 
@@ -57,7 +57,7 @@ export default function DepartmentAdminPage() {
   useEffect(() => {
     if (tab !== "stats") {
       setHasSearched(false);
-      setCommittedFilters({ start: "", end: "", employee: "", status: "" });
+      setCommittedFilters({ start: "", end: "", employee: "", status: "", category: "" });
     }
   }, [tab]);
 
@@ -90,6 +90,7 @@ export default function DepartmentAdminPage() {
         .filter((receipt) => !committedFilters.start || receipt.receipt_date >= committedFilters.start)
         .filter((receipt) => !committedFilters.end || receipt.receipt_date <= committedFilters.end)
         .filter((receipt) => !committedFilters.status || receipt.status === committedFilters.status)
+        .filter((receipt) => !committedFilters.category || (receipt.metadata?.category ?? "餐費補助") === committedFilters.category)
         .filter((receipt) => !committedFilters.employee || receipt.submitted_by === committedFilters.employee || (claimsByReceipt.get(receipt.id) ?? []).some((claim) => claim.profile_id === committedFilters.employee)),
     [claimsByReceipt, committedFilters, scope.receipts]
   );
@@ -256,6 +257,7 @@ export default function DepartmentAdminPage() {
                   <label>迄日<input type="date" className="date-input" value={filters.end} onChange={(event) => setFilters({ ...filters, end: event.target.value })} /></label>
                   <label>員工<select value={filters.employee} onChange={(event) => setFilters({ ...filters, employee: event.target.value })}><option value="">全部</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.display_name}</option>)}</select></label>
                   <label>狀態<select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">全部</option><option value="submitted">申請中</option><option value="settled">已放款</option><option value="rejected">退單</option></select></label>
+                  <label>項目<select value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}><option value="">全部</option><option value="餐費補助">餐費補助</option><option value="物品請購">物品請購</option></select></label>
                   <button className="primary-btn" style={{ marginTop: "auto" }} onClick={() => {
                     setCommittedFilters(filters);
                     setHasSearched(true);

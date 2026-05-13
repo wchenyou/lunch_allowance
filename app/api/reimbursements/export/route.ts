@@ -12,6 +12,7 @@ export async function GET(request: Request) {
   const end = url.searchParams.get("end") ?? "";
   const employee = url.searchParams.get("employee") ?? "";
   const status = url.searchParams.get("status") ?? "";
+  const category = url.searchParams.get("category") ?? "";
   const supabase = createSupabaseAdminClient();
   let query = supabase
     .from("receipts")
@@ -21,6 +22,14 @@ export async function GET(request: Request) {
   if (start) query = query.gte("receipt_date", start);
   if (end) query = query.lte("receipt_date", end);
   if (status) query = query.eq("status", status);
+  if (category) {
+    if (category === "餐費補助") {
+      // For "餐費補助", include records where category is missing or explicitly "餐費補助"
+      query = query.or(`metadata->>category.eq.餐費補助,metadata->>category.is.null`);
+    } else {
+      query = query.eq("metadata->>category", category);
+    }
+  }
   const { data, error } = await query;
   if (error) return new Response(error.message, { status: 500 });
   const receipts = (data ?? []).filter((receipt: any) => !employee || receipt.submitted_by === employee || receipt.receipt_claims?.some((claim: any) => claim.profile_id === employee));
@@ -32,7 +41,7 @@ export async function GET(request: Request) {
       return [
         index + 1,
         receipt.receipt_date,
-        "餐費補助",
+        receipt.metadata?.category ?? "餐費補助",
         receipt.departments?.name ?? "",
         claims.map((claim: any) => claim.profiles?.display_name ?? "").filter(Boolean).join("、"),
         claims.length,
