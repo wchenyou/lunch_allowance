@@ -26,15 +26,15 @@ export async function middleware(request: NextRequest) {
 
   const role = session?.role ?? (hasLegacyAdminSession ? "super_admin" : null);
   if (pathname.startsWith("/super-admin") && role !== "super_admin") return deny(request, "/login/super-admin");
-  if ((pathname === "/" || pathname.startsWith("/admin")) && role !== "department_admin") return deny(request, "/login/admin");
-  if (pathname.startsWith("/employee") && role !== "employee") return deny(request, "/login/employee");
+  if ((pathname === "/" || pathname.startsWith("/admin")) && role !== "department_admin" && role !== "super_admin") return deny(request, "/login/admin");
+  if (pathname.startsWith("/employee") && role !== "employee" && role !== "department_admin" && role !== "super_admin") return deny(request, "/login/employee");
 
   if (pathname.startsWith("/api/super-admin") && role !== "super_admin") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if ((pathname.startsWith("/api/admin") || pathname.startsWith("/api/reimbursements") || pathname.startsWith("/api/receipts") || pathname.startsWith("/api/employees")) && role !== "department_admin") {
+  if ((pathname.startsWith("/api/admin") || pathname.startsWith("/api/reimbursements") || pathname.startsWith("/api/receipts") || pathname.startsWith("/api/employees")) && role !== "department_admin" && role !== "super_admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (pathname.startsWith("/api/bootstrap") && role !== "employee" && role !== "department_admin") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (pathname.startsWith("/api/employee") && role !== "employee") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (pathname.startsWith("/api/bootstrap") && role !== "employee" && role !== "department_admin" && role !== "super_admin") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (pathname.startsWith("/api/employee") && role !== "employee" && role !== "department_admin" && role !== "super_admin") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   return NextResponse.next();
 }
