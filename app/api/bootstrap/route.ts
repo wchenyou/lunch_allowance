@@ -3,150 +3,220 @@ import { requireSession } from "@/app/lib/api/guards";
 import { calculateDailyClaimSubsidies, normalizeStatus } from "@/app/lib/calculations";
 import { RECEIPT_IMAGE_BUCKET } from "@/app/lib/domain";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
-import { readDb } from "@/app/lib/storage";
 
 export async function GET() {
   const guard = await requireSession(["employee", "department_admin", "super_admin"]);
   if (guard.response) return guard.response;
-  
-  const db = await readDb();
-  const currentProfileId = guard.session?.profileId;
-  if (!currentProfileId) return NextResponse.json({ error: "No profile" }, { status: 400 });
 
-  const currentEmployee = db.employees.find((e) => e.employee_id === currentProfileId);
-  if (!currentEmployee) return NextResponse.json({ error: "Employee not found" }, { status: 404 });
+  const currentProfileId = guard.session!.profileId;
+  const supabase = createSupabaseAdminClient();
 
-  const ownReceipts = db.receipts.filter((receipt) => receipt.payer_employee_id === currentProfileId || receipt.submitted_by === currentProfileId);
-  const ownAllocations = db.allocations.filter((allocation) => allocation.employee_id === currentProfileId);
-  
-  let allowedClaimants = [currentEmployee];
-  let signedAttachments = (db.attachments ?? []).filter((attachment) => ownReceipts.some((receipt) => receipt.receipt_id === attachment.receipt_id));
+  // ── 1. Fetch current user's profile (single row) ──────────────────────────
+  const { data: profileData, error: profileError } = await supabase
+    .from("profiles")
+    .select("*, departments!profiles_department_id_fkey(name)")
+    .eq("id", currentProfileId)
+    .single();
+
+  if (profileError || !profileData) {
+    return NextResponse.json({ error: "Employee not found" }, { status: 404 });
+  }
+
+  const currentEmployee = {
+    employee_id: profileData.id,
+    name: profileData.display_name,
+    active: profileData.active,
+    note: [profileData.employee_no, profileData.email].filter(Boolean).join(" / "),
+    department_id: profileData.department_id,
+    department_name: profileData.departments?.name ?? null,
+    created_at: profileData.created_at,
+    updated_at: profileData.updated_at
+  };
+
+  // ── 2. Fetch only this user's receipts (not all receipts) ─────────────────
+  const { data: receiptsRaw, error: receiptsError } = await supabase
+    .from("receipts")
+    .select("*")
+    .or(`submitted_by.eq.${currentProfileId},payer_profile_id.eq.${currentProfileId}`)
+    .order("receipt_date", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (receiptsError) return NextResponse.json({ error: receiptsError.message }, { status: 500 });
+
+  const receipts = (receiptsRaw ?? []).map((r: any) => ({
+    receipt_id: r.id,
+    date: r.receipt_date,
+    payer_employee_id: r.payer_profile_id ?? r.submitted_by,
+    submitted_by: r.submitted_by,
+    department_id: r.department_id,
+    applicant_name: r.metadata?.applicant_name,
+    claimant_names: Array.isArray(r.metadata?.claimant_names) ? r.metadata.claimant_names : [],
+    merchant: r.merchant ?? "",
+    total_amount: Number(r.total_amount ?? 0),
+    claimed_amount: Number(r.claimed_amount ?? 0),
+    subsidy_amount: Number(r.subsidy_amount ?? 0),
+    reimbursed_amount: Number(r.reimbursed_amount ?? 0),
+    receipt_no: r.receipt_no ?? "",
+    note: r.note ?? "",
+    reimbursement_status: normalizeStatus(r.status),
+    category: r.metadata?.category ?? null,
+    created_at: r.created_at,
+    updated_at: r.updated_at
+  }));
+
+  const receiptIds = receipts.map((r) => r.receipt_id);
+
+  // ── 3. Fetch only claims for this user's receipts ─────────────────────────
+  const { data: claimsRaw, error: claimsError } = receiptIds.length
+    ? await supabase
+        .from("receipt_claims")
+        .select("*")
+        .in("receipt_id", receiptIds)
+        .order("claim_date", { ascending: false })
+        .order("created_at", { ascending: true })
+    : { data: [], error: null };
+
+  if (claimsError) return NextResponse.json({ error: claimsError.message }, { status: 500 });
+
+  const allocations = (claimsRaw ?? []).map((c: any) => ({
+    allocation_id: c.id,
+    receipt_id: c.receipt_id,
+    date: c.claim_date,
+    employee_id: c.profile_id,
+    amount: Number(c.claimed_amount ?? 0),
+    note: c.note ?? "",
+    created_at: c.created_at,
+    updated_at: c.updated_at
+  }));
+
+  // ── 4. Fetch attachments for this user's receipts ─────────────────────────
+  const { data: attachmentsRaw } = receiptIds.length
+    ? await supabase
+        .from("receipt_attachments")
+        .select("*")
+        .in("receipt_id", receiptIds)
+        .order("created_at", { ascending: true })
+    : { data: [] };
+
+  let attachments = (attachmentsRaw ?? []).map((a: any) => ({
+    attachment_id: a.id,
+    receipt_id: a.receipt_id,
+    bucket: a.bucket ?? RECEIPT_IMAGE_BUCKET,
+    object_path: a.object_path,
+    file_name: a.object_path?.split("/").pop() ?? "receipt.jpg",
+    content_type: a.content_type ?? "image/jpeg",
+    size_bytes: Number(a.size_bytes ?? 0),
+    created_at: a.created_at
+  }));
+
+  // ── 5. Signed URLs for attachments ────────────────────────────────────────
+  if (attachments.length > 0) {
+    const bucket = process.env.RECEIPT_IMAGE_BUCKET || RECEIPT_IMAGE_BUCKET;
+    const paths = attachments.map((a) => a.object_path);
+    const { data: signedUrlsData } = await supabase.storage.from(bucket).createSignedUrls(paths, 60 * 60);
+    if (signedUrlsData) {
+      const urlMap = new Map(signedUrlsData.map((d) => [d.path, d.signedUrl]));
+      attachments = attachments.map((a) => ({ ...a, signed_url: urlMap.get(a.object_path) ?? undefined }));
+    }
+  }
+
+  // ── 6. Allowed claimants & departments (scoped lookup) ───────────────────
+  let allowedClaimants: any[] = [currentEmployee];
   let allowedDepartments: any[] = [];
-  
+
   try {
-    const supabase = createSupabaseAdminClient();
-    
-    const targetDeptIds = new Set<string>();
-    if (currentEmployee.department_id) targetDeptIds.add(currentEmployee.department_id);
-    
-    if (guard.session?.role === "super_admin") {
-      allowedClaimants = db.employees.filter((e) => e.active);
+    if (guard.session!.role === "super_admin") {
+      const { data: allProfiles } = await supabase
+        .from("profiles")
+        .select("*, departments!profiles_department_id_fkey(name)")
+        .eq("active", true)
+        .order("display_name", { ascending: true });
       const { data: allDepts } = await supabase.from("departments").select("*").eq("active", true);
+      allowedClaimants = (allProfiles ?? []).map((p: any) => ({
+        employee_id: p.id, name: p.display_name, active: p.active,
+        department_id: p.department_id, department_name: p.departments?.name ?? null,
+        note: [p.employee_no, p.email].filter(Boolean).join(" / "),
+        created_at: p.created_at, updated_at: p.updated_at
+      }));
       allowedDepartments = allDepts ?? [];
     } else {
-      // 1. 查找誰是「管理我所屬部門」的行政 (例如 Biz 管理 Aaron 所屬的「商務合作處」)
-      const { data: myDeptAdmins } = await supabase
-        .from("department_admin_departments")
-        .select("admin_profile_id")
-        .eq("department_id", currentEmployee.department_id);
-      
-      const adminIds = new Set((myDeptAdmins ?? []).map(s => s.admin_profile_id));
-      adminIds.add(currentProfileId); // 也包含自己
-      
-      // 2. 查找這些行政「所管轄的所有部門」 (例如 Biz 管轄「商務合作處」和「推廣開發處」)
+      // Find which admins manage this employee's department, then get all their managed depts
+      const myDeptId = currentEmployee.department_id;
+      const targetDeptIds = new Set<string>(myDeptId ? [myDeptId] : []);
+
+      const [{ data: myDeptAdmins }, { data: claimantPerms }] = await Promise.all([
+        myDeptId
+          ? supabase.from("department_admin_departments").select("admin_profile_id").eq("department_id", myDeptId)
+          : Promise.resolve({ data: [] }),
+        supabase.from("claimant_permissions").select("claimant_profile_id").eq("employee_profile_id", currentProfileId)
+      ]);
+
+      const adminIds = new Set([...(myDeptAdmins ?? []).map((s: any) => s.admin_profile_id), currentProfileId]);
       const { data: allManagedScopes } = await supabase
         .from("department_admin_departments")
         .select("department_id")
         .in("admin_profile_id", Array.from(adminIds));
-      
-      // 3. 彙整目標部門 ID
-      if (currentEmployee.department_id) targetDeptIds.add(currentEmployee.department_id);
-      if (allManagedScopes) {
-        for (const scope of allManagedScopes) {
-          if (scope.department_id) targetDeptIds.add(scope.department_id);
-        }
+
+      for (const scope of allManagedScopes ?? []) {
+        if (scope.department_id) targetDeptIds.add(scope.department_id);
       }
-      
-      allowedClaimants = db.employees.filter((e) => e.active && e.department_id != null && targetDeptIds.has(e.department_id));
-      
-      // 獲取所有目標部門內的員工，而不僅僅是 db.employees 中已載入的部分（如果是快取的話）
-      // 確保跨部門的人選能正確列出
+
       const targetIdsArray = Array.from(targetDeptIds);
-      if (targetIdsArray.length > 0) {
-        const { data: targetProfiles } = await supabase
-          .from("profiles")
-          .select("*, departments!profiles_department_id_fkey(name)")
-          .in("department_id", targetIdsArray)
-          .eq("active", true)
-          .order("display_name", { ascending: true });
-          
-        if (targetProfiles) {
-          // 將 profiles 轉化為 Employee 格式
-          allowedClaimants = targetProfiles.map((p: any) => ({
-            employee_id: p.id,
-            name: p.display_name,
-            active: p.active,
-            department_id: p.department_id,
-            department_name: p.departments?.name ?? null,
-            note: [p.employee_no, p.email].filter(Boolean).join(" / "),
-            created_at: p.created_at,
-            updated_at: p.updated_at
-          }));
-        }
+      const [{ data: targetProfiles }, { data: targetDepts }] = await Promise.all([
+        targetIdsArray.length
+          ? supabase.from("profiles").select("*, departments!profiles_department_id_fkey(name)")
+              .in("department_id", targetIdsArray).eq("active", true).order("display_name", { ascending: true })
+          : Promise.resolve({ data: [] }),
+        targetIdsArray.length
+          ? supabase.from("departments").select("*").in("id", targetIdsArray).eq("active", true)
+          : Promise.resolve({ data: [] })
+      ]);
 
-        const { data: targetDepts } = await supabase.from("departments").select("*").in("id", targetIdsArray).eq("active", true);
-        allowedDepartments = targetDepts ?? [];
-      }
+      allowedClaimants = (targetProfiles ?? []).map((p: any) => ({
+        employee_id: p.id, name: p.display_name, active: p.active,
+        department_id: p.department_id, department_name: p.departments?.name ?? null,
+        note: [p.employee_no, p.email].filter(Boolean).join(" / "),
+        created_at: p.created_at, updated_at: p.updated_at
+      }));
+      allowedDepartments = targetDepts ?? [];
     }
-
-    const bucket = process.env.RECEIPT_IMAGE_BUCKET || RECEIPT_IMAGE_BUCKET;
-    if (signedAttachments.length > 0) {
-      const paths = signedAttachments.map((a) => a.object_path);
-      const { data: signedUrlsData } = await supabase.storage.from(bucket).createSignedUrls(paths, 60 * 60);
-      if (signedUrlsData) {
-        const urlMap = new Map(signedUrlsData.map((d) => [d.path, d.signedUrl]));
-        signedAttachments = signedAttachments.map((attachment) => ({
-          ...attachment,
-          signed_url: urlMap.get(attachment.object_path) ?? undefined
-        }));
-      }
-    }
-  } catch (error) {
-    console.error(error);
+  } catch (err) {
+    console.error("[bootstrap] allowedClaimants lookup failed:", err);
   }
 
-  const paidReceiptIds = new Set(ownReceipts.filter((receipt) => normalizeStatus(receipt.reimbursement_status) === "paid").map((receipt) => receipt.receipt_id));
-  const submittedTotal = ownReceipts.reduce((sum, receipt) => sum + Number(receipt.total_amount || 0), 0);
+  // ── 7. Financial summary calculation ─────────────────────────────────────
+  const ownAllocations = allocations.filter((a) => a.employee_id === currentProfileId);
+  const paidReceiptIds = new Set(
+    receipts.filter((r) => normalizeStatus(r.reimbursement_status) === "paid").map((r) => r.receipt_id)
+  );
+  const submittedTotal = receipts.reduce((sum, r) => sum + Number(r.total_amount || 0), 0);
   const paidTotal = ownAllocations
-    .filter((allocation) => paidReceiptIds.has(allocation.receipt_id))
-    .reduce((sum, allocation) => sum + Number(allocation.amount || 0), 0);
-    
-  const pendingReceipts = ownReceipts.filter((receipt) => normalizeStatus(receipt.reimbursement_status) !== "paid" && normalizeStatus(receipt.reimbursement_status) !== "rejected");
-  const pendingCount = pendingReceipts.length;
-  
-  // 「單據總金額」：所有待處理單據的面額總加
-  const pendingTotalAmount = pendingReceipts.reduce((sum, receipt) => sum + Number(receipt.total_amount || 0), 0);
-  
-  // 「可請款總金額」：根據每天每人 150 元上限計算後的補助總額
-  const pendingReceiptIds = new Set(pendingReceipts.map(r => r.receipt_id));
-  
-  // 重新對所有 Pending 單據進行一次每日上限計算
+    .filter((a) => paidReceiptIds.has(a.receipt_id))
+    .reduce((sum, a) => sum + Number(a.amount || 0), 0);
+
+  const pendingReceipts = receipts.filter(
+    (r) => normalizeStatus(r.reimbursement_status) !== "paid" && normalizeStatus(r.reimbursement_status) !== "rejected"
+  );
+  const pendingReceiptIds = new Set(pendingReceipts.map((r) => r.receipt_id));
   const allPendingClaims = ownAllocations
-    .filter(a => pendingReceiptIds.has(a.receipt_id))
-    .map(a => ({
-      id: a.allocation_id,
-      profileId: a.employee_id,
-      claimDate: a.date,
-      claimedAmount: a.amount,
-      createdAt: a.created_at
-    }));
-  
+    .filter((a) => pendingReceiptIds.has(a.receipt_id))
+    .map((a) => ({ id: a.allocation_id, profileId: a.employee_id, claimDate: a.date, claimedAmount: a.amount, createdAt: a.created_at }));
   const calculatedPendingSubsidies = calculateDailyClaimSubsidies(allPendingClaims);
   const totalSubsidy = calculatedPendingSubsidies.reduce((sum, s) => sum + s.subsidyAmount, 0);
-    
+
   return NextResponse.json({
     employees: [currentEmployee],
     allowedClaimants,
     departments: allowedDepartments,
-    receipts: ownReceipts,
-    allocations: ownAllocations,
-    attachments: signedAttachments,
+    receipts,
+    allocations,
+    attachments,
     summary: {
       submittedTotal,
       paidTotal,
       unpaidTotal: Math.max(0, submittedTotal - paidTotal),
-      pendingCount,
-      pendingTotalAmount,
+      pendingCount: pendingReceipts.length,
+      pendingTotalAmount: pendingReceipts.reduce((sum, r) => sum + Number(r.total_amount || 0), 0),
       pendingClaimableAmount: totalSubsidy
     }
   });

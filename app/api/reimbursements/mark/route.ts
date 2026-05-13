@@ -11,9 +11,15 @@ export async function POST(request: Request) {
   const supabase = createSupabaseAdminClient();
   const { data: receipts, error } = await supabase.from("receipts").select("id, department_id").in("id", receiptIds);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  if ((receipts ?? []).length !== receiptIds.length || (receipts ?? []).some((receipt) => !guard.session!.departmentIds.includes(receipt.department_id))) {
+  if ((receipts ?? []).length !== receiptIds.length) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  const db = await markReceipts(receiptIds, status);
-  return NextResponse.json(db);
+  // department_admin must only mark their own dept; super_admin has no restriction
+  if (guard.session!.role !== "super_admin") {
+    if ((receipts ?? []).some((receipt) => !guard.session!.departmentIds.includes(receipt.department_id))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  }
+  await markReceipts(receiptIds, status);
+  return NextResponse.json({ ok: true });
 }
