@@ -33,6 +33,7 @@ type AdminScope = {
   claims: Claim[];
   attachments: Attachment[];
   claimantPermissions: Permission[];
+  limited?: boolean;
 };
 
 const statusLabels: Record<string, string> = { submitted: "申請中", settled: "已放款", rejected: "退單" };
@@ -51,13 +52,10 @@ export default function DepartmentAdminPage() {
   const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "" });
 
   useEffect(() => {
-    refresh();
-  }, []);
-
-  useEffect(() => {
     if (tab !== "stats") {
       setHasSearched(false);
       setCommittedFilters({ start: "", end: "", employee: "", status: "", category: "" });
+      refresh();
     }
   }, [tab]);
 
@@ -74,9 +72,24 @@ export default function DepartmentAdminPage() {
       return;
     }
     setScope(scopeBody);
+    setMessage(scopeBody.limited ? "目前顯示最近 200 筆單據；請到單據統計用條件查詢完整資料。" : "");
     if (sessionRes.ok) {
       setSession(sessionBody.session);
     }
+  }
+
+  async function searchStats() {
+    const query = new URLSearchParams({ ...filters, mode: "stats", limit: "500" }).toString();
+    const response = await fetch(`/api/admin/scope?${query}`, { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok) {
+      setMessage(body.error || "查詢失敗");
+      return;
+    }
+    setScope(body);
+    setCommittedFilters(filters);
+    setHasSearched(true);
+    setMessage(body.receipts?.length >= 500 ? "查詢結果先顯示前 500 筆；請縮小條件取得更精準結果。" : "");
   }
 
   const profilesById = useMemo(() => new Map(scope.profiles.map((profile) => [profile.id, profile])), [scope.profiles]);
@@ -258,10 +271,7 @@ export default function DepartmentAdminPage() {
                   <label>員工<select value={filters.employee} onChange={(event) => setFilters({ ...filters, employee: event.target.value })}><option value="">全部</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.display_name}</option>)}</select></label>
                   <label>狀態<select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">全部</option><option value="submitted">申請中</option><option value="settled">已放款</option><option value="rejected">退單</option></select></label>
                   <label>項目<select value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}><option value="">全部</option><option value="餐費補助">餐費補助</option><option value="物品請購">物品請購</option></select></label>
-                  <button className="primary-btn" style={{ marginTop: "auto" }} onClick={() => {
-                    setCommittedFilters(filters);
-                    setHasSearched(true);
-                  }}>查詢</button>
+                  <button className="primary-btn" style={{ marginTop: "auto" }} onClick={searchStats}>查詢</button>
                 </div>
                 <div className="export-actions">
                   <a className="primary-btn link-btn" href={`/api/reimbursements/export?${exportQuery}`}><Download size={16} /> 匯出 CSV</a>

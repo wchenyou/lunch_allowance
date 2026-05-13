@@ -19,6 +19,18 @@ export async function GET(request: Request) {
     .select("*, departments(name), receipt_claims(*, profiles(display_name)), receipt_attachments(*)")
     .order("receipt_date", { ascending: false });
   if (guard.session!.departmentIds.length) query = query.in("department_id", guard.session!.departmentIds);
+  if (employee) {
+    const { data: employeeClaims, error: employeeClaimsError } = await supabase
+      .from("receipt_claims")
+      .select("receipt_id")
+      .eq("profile_id", employee)
+      .limit(5000);
+    if (employeeClaimsError) return new Response(employeeClaimsError.message, { status: 500 });
+    const claimReceiptIds = [...new Set((employeeClaims ?? []).map((claim) => claim.receipt_id))];
+    query = claimReceiptIds.length
+      ? query.or(`submitted_by.eq.${employee},id.in.(${claimReceiptIds.join(",")})`)
+      : query.eq("submitted_by", employee);
+  }
   if (start) query = query.gte("receipt_date", start);
   if (end) query = query.lte("receipt_date", end);
   if (status) query = query.eq("status", status);
@@ -32,7 +44,7 @@ export async function GET(request: Request) {
   }
   const { data, error } = await query;
   if (error) return new Response(error.message, { status: 500 });
-  const receipts = (data ?? []).filter((receipt: any) => !employee || receipt.submitted_by === employee || receipt.receipt_claims?.some((claim: any) => claim.profile_id === employee));
+  const receipts = data ?? [];
   const lines = [
     ["編號", "日期", "項目", "部門", "請款人名稱", "請款人數", "單據金額", "可請款金額", "單據狀態", "單據照片名稱"],
     ...receipts.map((receipt: any, index: number) => {
