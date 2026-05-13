@@ -127,7 +127,7 @@ export default function DepartmentAdminPage() {
   );
   const activeEmployee = employees.find((employee) => employee.id === activeEmployeeId);
   const activeEmployeeReceipts = activeEmployee
-    ? scope.receipts.filter((receipt) => (claimsByReceipt.get(receipt.id) ?? []).some((claim) => claim.profile_id === activeEmployee.id))
+    ? scope.receipts.filter((receipt) => receipt.status === "submitted" && (claimsByReceipt.get(receipt.id) ?? []).some((claim) => claim.profile_id === activeEmployee.id))
     : [];
 
   async function markReceipts(receiptIds: string[], status: string) {
