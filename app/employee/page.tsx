@@ -1,12 +1,12 @@
 "use client";
 
-import { Camera, CheckCircle2, KeyRound, LogOut, Menu, ReceiptText, Upload, UsersRound, X } from "lucide-react";
-import Link from "next/link";
+import { Camera, KeyRound, LogOut, Menu, ReceiptText, Upload, UsersRound, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { calculateDailyClaimSubsidies } from "@/app/lib/calculations";
 import { DAILY_SUBSIDY_LIMIT, Department } from "@/app/lib/domain";
 import { createSupabaseBrowserClient } from "@/app/lib/supabase/client";
-import type { Employee, Receipt, ReceiptAttachment } from "@/app/lib/types";
+import type { Allocation, Employee, Receipt, ReceiptAttachment } from "@/app/lib/types";
 
 const money = (value: number) => new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(value || 0);
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -20,7 +20,9 @@ export default function EmployeeReceiptPage() {
   const [allowedClaimants, setAllowedClaimants] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [, setAllocations] = useState<Allocation[]>([]);
   const [attachments, setAttachments] = useState<ReceiptAttachment[]>([]);
+  const [signedUrlCache, setSignedUrlCache] = useState<Record<string, string>>({});
   const [summary, setSummary] = useState<Summary>({ submittedTotal: 0, paidTotal: 0, unpaidTotal: 0, pendingCount: 0, pendingTotalAmount: 0, pendingClaimableAmount: 0 });
   const [form, setForm] = useState({
     date: todayIso(),
@@ -63,6 +65,7 @@ export default function EmployeeReceiptPage() {
     });
     setReceipts(sortedReceipts);
     setPage(0);
+    setAllocations(data.allocations ?? []);
     setAttachments(data.attachments ?? []);
     setSummary(data.summary ?? { submittedTotal: 0, paidTotal: 0, unpaidTotal: 0, pendingCount: 0, pendingTotalAmount: 0, pendingClaimableAmount: 0 });
     if (currentEmployee) {
@@ -74,6 +77,22 @@ export default function EmployeeReceiptPage() {
   const selectedClaimIds = useMemo(() => new Set(claimInputs.map((claim) => claim.employee_id)), [claimInputs]);
   const receiptAttachments = useMemo(() => new Map(attachments.map((attachment) => [attachment.receipt_id, attachment])), [attachments]);
   const statusLabel = (status: Receipt["reimbursement_status"]) => (status === "paid" ? "已放款" : status === "rejected" ? "退單" : "申請中");
+
+  async function openAttachment(attachment: ReceiptAttachment) {
+    const cachedUrl = signedUrlCache[attachment.attachment_id] ?? attachment.signed_url;
+    if (cachedUrl) {
+      window.open(cachedUrl, "_blank");
+      return;
+    }
+    const response = await fetch(`/api/attachments/${attachment.attachment_id}/sign`, { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok || !body.signed_url) {
+      setMessage(body.error || "照片連結產生失敗");
+      return;
+    }
+    setSignedUrlCache((current) => ({ ...current, [attachment.attachment_id]: body.signed_url }));
+    window.open(body.signed_url, "_blank");
+  }
 
   function toggleClaimant(employeeId: string, checked: boolean) {
     if (employeeId === employee?.employee_id) return;
@@ -92,6 +111,7 @@ export default function EmployeeReceiptPage() {
   }
 
   async function handleDeleteReceipt(receiptId: string) {
+    if (!employee) return;
     if (!confirm("確定要刪除這張單據嗎？")) return;
     const response = await fetch(`/api/employee/receipts/${receiptId}`, { method: "DELETE" });
     if (!response.ok) {
@@ -99,7 +119,16 @@ export default function EmployeeReceiptPage() {
       alert(body.error || "刪除失敗");
       return;
     }
-    await refresh();
+    setReceipts((current) => {
+      const nextReceipts = current.filter((receipt) => receipt.receipt_id !== receiptId);
+      setAllocations((currentAllocations) => {
+        const nextAllocations = currentAllocations.filter((allocation) => allocation.receipt_id !== receiptId);
+        setSummary(buildSummary(employee.employee_id, nextReceipts, nextAllocations));
+        return nextAllocations;
+      });
+      return nextReceipts;
+    });
+    setAttachments((current) => current.filter((attachment) => attachment.receipt_id !== receiptId));
   }
 
   async function submitReceipt(event: FormEvent) {
@@ -128,6 +157,7 @@ export default function EmployeeReceiptPage() {
       validClaims = [{ employee_id: employee.employee_id, amount: totalAmount }];
     }
 
+    const compressedImagePromise = compressImage(imageFile);
     const response = await fetch("/api/employee/receipts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -144,14 +174,29 @@ export default function EmployeeReceiptPage() {
     });
     const body = await response.json();
     if (!response.ok) {
+      compressedImagePromise.catch(() => undefined);
       setMessage(body.error || "送出失敗");
       setIsSubmitting(false);
       return;
     }
 
     const receipt = body.receipt as Receipt | undefined;
+    const savedAllocations = (body.allocations ?? []) as Allocation[];
+    let savedAttachment: ReceiptAttachment | null = null;
     if (receipt?.receipt_id) {
-      await uploadReceiptImage(receipt.receipt_id, imageFile);
+      try {
+        const compressedImage = await compressedImagePromise;
+        savedAttachment = await uploadReceiptImage(receipt.receipt_id, compressedImage);
+      } catch (error) {
+        applySavedReceipt(receipt, savedAllocations, null);
+        setMessage(error instanceof Error ? error.message : "照片上傳失敗");
+        setIsSubmitting(false);
+        return;
+      }
+    } else compressedImagePromise.catch(() => undefined);
+    if (receipt) {
+      applySavedReceipt(receipt, savedAllocations, savedAttachment);
+      setPage(0);
     }
     setMessage("");
     setForm((current) => ({ ...current, merchant: "", receipt_no: "", total_amount: "", note: "", category: "餐費補助" }));
@@ -160,12 +205,25 @@ export default function EmployeeReceiptPage() {
     setClaimInputs([{ employee_id: employee.employee_id, amount: "" }]);
     setUploadModalOpen(false);
     setIsSubmitting(false);
-    await refresh();
   }
 
-  async function uploadReceiptImage(receiptId: string, file: File) {
-    if (!employee) return;
-    const compressed = await compressImage(file);
+  function applySavedReceipt(receipt: Receipt, savedAllocations: Allocation[], savedAttachment: ReceiptAttachment | null) {
+    setReceipts((current) => {
+      const nextReceipts = sortReceipts([receipt, ...current.filter((item) => item.receipt_id !== receipt.receipt_id)]);
+      setAllocations((currentAllocations) => {
+        const nextAllocations = [...currentAllocations.filter((allocation) => allocation.receipt_id !== receipt.receipt_id), ...savedAllocations];
+        if (employee) setSummary(buildSummary(employee.employee_id, nextReceipts, nextAllocations));
+        return nextAllocations;
+      });
+      return nextReceipts;
+    });
+    if (savedAttachment) {
+      setAttachments((current) => [...current.filter((attachment) => attachment.receipt_id !== savedAttachment.receipt_id), savedAttachment]);
+    }
+  }
+
+  async function uploadReceiptImage(receiptId: string, compressed: File) {
+    if (!employee) return null;
     const fileName = nextReceiptFileName(employee.name, form.date);
     const signResponse = await fetch("/api/employee/uploads/sign", {
       method: "POST",
@@ -186,6 +244,8 @@ export default function EmployeeReceiptPage() {
       const body = await completeResponse.json();
       throw new Error(body.error || "照片紀錄失敗");
     }
+    const completeBody = await completeResponse.json();
+    return (completeBody.attachment ?? null) as ReceiptAttachment | null;
   }
 
   function nextReceiptFileName(employeeName: string, date: string) {
@@ -344,11 +404,11 @@ export default function EmployeeReceiptPage() {
                   )}
                   
                   <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
-                    {attachment?.signed_url ? (
+                    {attachment ? (
                       <button 
                         className="ghost-btn compact" 
                         style={{ flex: 1, borderRadius: "6px" }}
-                        onClick={(e) => { e.preventDefault(); window.open(attachment.signed_url, "_blank"); }}
+                        onClick={(e) => { e.preventDefault(); openAttachment(attachment); }}
                       >
                         查看收據
                       </button>
@@ -535,6 +595,46 @@ export default function EmployeeReceiptPage() {
 
     </main>
   );
+}
+
+function sortReceipts(items: Receipt[]) {
+  return [...items].sort((a, b) => {
+    const aRejected = a.reimbursement_status === "rejected";
+    const bRejected = b.reimbursement_status === "rejected";
+    if (aRejected && !bRejected) return -1;
+    if (!aRejected && bRejected) return 1;
+    return `${b.date}|${b.created_at}`.localeCompare(`${a.date}|${a.created_at}`);
+  });
+}
+
+function buildSummary(employeeId: string, receipts: Receipt[], allocations: Allocation[]): Summary {
+  const ownAllocations = allocations.filter((allocation) => allocation.employee_id === employeeId);
+  const paidReceiptIds = new Set(receipts.filter((receipt) => receipt.reimbursement_status === "paid").map((receipt) => receipt.receipt_id));
+  const pendingReceipts = receipts.filter((receipt) => receipt.reimbursement_status !== "paid" && receipt.reimbursement_status !== "rejected");
+  const pendingReceiptIds = new Set(pendingReceipts.map((receipt) => receipt.receipt_id));
+  const allPendingClaims = ownAllocations
+    .filter((allocation) => pendingReceiptIds.has(allocation.receipt_id))
+    .map((allocation) => ({
+      id: allocation.allocation_id,
+      profileId: allocation.employee_id,
+      claimDate: allocation.date,
+      claimedAmount: allocation.amount,
+      createdAt: allocation.created_at
+    }));
+  const calculatedPendingSubsidies = calculateDailyClaimSubsidies(allPendingClaims);
+  const submittedTotal = receipts.reduce((sum, receipt) => sum + Number(receipt.total_amount || 0), 0);
+  const paidTotal = ownAllocations
+    .filter((allocation) => paidReceiptIds.has(allocation.receipt_id))
+    .reduce((sum, allocation) => sum + Number(allocation.amount || 0), 0);
+
+  return {
+    submittedTotal,
+    paidTotal,
+    unpaidTotal: Math.max(0, submittedTotal - paidTotal),
+    pendingCount: pendingReceipts.length,
+    pendingTotalAmount: pendingReceipts.reduce((sum, receipt) => sum + Number(receipt.total_amount || 0), 0),
+    pendingClaimableAmount: calculatedPendingSubsidies.reduce((sum, subsidy) => sum + subsidy.subsidyAmount, 0)
+  };
 }
 
 async function compressImage(file: File) {

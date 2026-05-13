@@ -27,6 +27,7 @@ type ReceiptRow = {
   metadata?: { applicant_name?: string; claimant_names?: string[]; category?: string };
 };
 type Permission = { department_id: string; employee_profile_id: string; claimant_profile_id: string };
+type AdminSummary = { pendingApplicantCount: number; pendingReceiptCount: number; totalClaimedAmount: number; totalSubsidyAmount: number };
 type AdminScope = {
   departments: Department[];
   profiles: Profile[];
@@ -34,6 +35,7 @@ type AdminScope = {
   claims: Claim[];
   attachments: Attachment[];
   claimantPermissions: Permission[];
+  summary?: AdminSummary;
   limited?: boolean;
 };
 
@@ -42,9 +44,11 @@ const statusLabels: Record<string, string> = { submitted: "申請中", settled: 
 export default function DepartmentAdminPage() {
   const router = useRouter();
   const [scope, setScope] = useState<AdminScope>({ departments: [], profiles: [], receipts: [], claims: [], attachments: [], claimantPermissions: [] });
+  const [signedUrlCache, setSignedUrlCache] = useState<Record<string, string>>({});
   const [session, setSession] = useState<any>(null);
   const [tab, setTab] = useState<Tab>("receipts");
   const [hasSearched, setHasSearched] = useState(false);
+  const [loadedTabs, setLoadedTabs] = useState<Set<Tab>>(() => new Set(["receipts"]));
   const [message, setMessage] = useState("");
   const [activeEmployeeId, setActiveEmployeeId] = useState("");
   const [filters, setFilters] = useState({ start: "", end: "", employee: "", status: "", category: "" });
@@ -53,16 +57,23 @@ export default function DepartmentAdminPage() {
   const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "" });
 
   useEffect(() => {
+    refresh();
+  }, []);
+
+  useEffect(() => {
     if (tab !== "stats") {
       setHasSearched(false);
       setCommittedFilters({ start: "", end: "", employee: "", status: "", category: "" });
-      refresh();
+    }
+    if (!loadedTabs.has(tab)) {
+      refresh(tab);
     }
   }, [tab]);
 
-  async function refresh() {
+  async function refresh(nextTab: Tab = tab) {
+    const query = new URLSearchParams({ view: nextTab }).toString();
     const [scopeRes, sessionRes] = await Promise.all([
-      fetch("/api/admin/scope", { cache: "no-store" }),
+      fetch(`/api/admin/scope?${query}`, { cache: "no-store" }),
       fetch("/api/auth/session")
     ]);
     const scopeBody = await scopeRes.json();
@@ -72,7 +83,8 @@ export default function DepartmentAdminPage() {
       setMessage(scopeBody.error || "無法載入部門行政資料");
       return;
     }
-    setScope(scopeBody);
+    mergeScope(scopeBody, nextTab);
+    setLoadedTabs((current) => new Set([...current, nextTab]));
     setMessage(scopeBody.limited ? "目前顯示最近 200 筆單據；請到單據統計用條件查詢完整資料。" : "");
     if (sessionRes.ok) {
       setSession(sessionBody.session);
@@ -80,17 +92,26 @@ export default function DepartmentAdminPage() {
   }
 
   async function searchStats() {
-    const query = new URLSearchParams({ ...filters, mode: "stats", limit: "500" }).toString();
+    const query = new URLSearchParams({ ...filters, mode: "stats", view: "stats", limit: "500" }).toString();
     const response = await fetch(`/api/admin/scope?${query}`, { cache: "no-store" });
     const body = await response.json();
     if (!response.ok) {
       setMessage(body.error || "查詢失敗");
       return;
     }
-    setScope(body);
+    mergeScope(body, "stats");
+    setLoadedTabs((current) => new Set([...current, "stats"]));
     setCommittedFilters(filters);
     setHasSearched(true);
     setMessage(body.receipts?.length >= 500 ? "查詢結果先顯示前 500 筆；請縮小條件取得更精準結果。" : "");
+  }
+
+  async function refreshSummary() {
+    const response = await fetch("/api/admin/scope?view=summary", { cache: "no-store" });
+    const body = await response.json();
+    if (response.ok && body.summary) {
+      setScope((current) => ({ ...current, summary: body.summary }));
+    }
   }
 
   const profilesById = useMemo(() => new Map(scope.profiles.map((profile) => [profile.id, profile])), [scope.profiles]);
@@ -130,6 +151,35 @@ export default function DepartmentAdminPage() {
     ? scope.receipts.filter((receipt) => receipt.status === "submitted" && (claimsByReceipt.get(receipt.id) ?? []).some((claim) => claim.profile_id === activeEmployee.id))
     : [];
 
+  function mergeScope(nextScope: AdminScope, targetTab: Tab) {
+    setScope((current) => ({
+      departments: nextScope.departments?.length ? nextScope.departments : current.departments,
+      profiles: nextScope.profiles?.length ? nextScope.profiles : current.profiles,
+      receipts: targetTab === "permissions" ? current.receipts : nextScope.receipts ?? current.receipts,
+      claims: targetTab === "permissions" ? current.claims : nextScope.claims ?? current.claims,
+      attachments: targetTab === "payouts" || targetTab === "permissions" ? current.attachments : nextScope.attachments ?? current.attachments,
+      claimantPermissions: targetTab === "permissions" ? nextScope.claimantPermissions ?? [] : current.claimantPermissions,
+      summary: nextScope.summary ?? current.summary,
+      limited: nextScope.limited
+    }));
+  }
+
+  async function openAttachment(attachment: Attachment) {
+    const cachedUrl = signedUrlCache[attachment.id] ?? attachment.signed_url;
+    if (cachedUrl) {
+      window.open(cachedUrl, "_blank");
+      return;
+    }
+    const response = await fetch(`/api/attachments/${attachment.id}/sign`, { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok || !body.signed_url) {
+      setMessage(body.error || "照片連結產生失敗");
+      return;
+    }
+    setSignedUrlCache((current) => ({ ...current, [attachment.id]: body.signed_url }));
+    window.open(body.signed_url, "_blank");
+  }
+
   async function markReceipts(receiptIds: string[], status: string) {
     const response = await fetch("/api/reimbursements/mark", {
       method: "POST",
@@ -140,7 +190,8 @@ export default function DepartmentAdminPage() {
     setMessage(response.ok ? "單據狀態已更新" : body.error || "狀態更新失敗");
     if (response.ok) {
       setActiveEmployeeId("");
-      await refresh();
+      applyReceiptMutation(body.receipts ?? [], body.claims ?? []);
+      await refreshSummary();
     }
   }
 
@@ -148,7 +199,29 @@ export default function DepartmentAdminPage() {
     const response = await fetch(`/api/receipts/${id}`, { method: "DELETE" });
     const body = await response.json();
     setMessage(response.ok ? "單據已刪除" : body.error || "刪除失敗");
-    if (response.ok) await refresh();
+    if (response.ok) {
+      setScope((current) => ({
+        ...current,
+        receipts: current.receipts.filter((receipt) => receipt.id !== id),
+        claims: current.claims.filter((claim) => claim.receipt_id !== id),
+        attachments: current.attachments.filter((attachment) => attachment.receipt_id !== id)
+      }));
+      await refreshSummary();
+    }
+  }
+
+  function applyReceiptMutation(updatedReceipts: ReceiptRow[], updatedClaims: Claim[]) {
+    if (!updatedReceipts.length && !updatedClaims.length) return;
+    const updatedReceiptIds = new Set(updatedReceipts.map((receipt) => receipt.id));
+    const updatedClaimReceiptIds = new Set(updatedClaims.map((claim) => claim.receipt_id));
+    setScope((current) => ({
+      ...current,
+      receipts: current.receipts.map((receipt) => updatedReceipts.find((updated) => updated.id === receipt.id) ?? receipt),
+      claims: [
+        ...current.claims.filter((claim) => !updatedClaimReceiptIds.has(claim.receipt_id) && !updatedReceiptIds.has(claim.receipt_id)),
+        ...updatedClaims
+      ]
+    }));
   }
 
   async function savePermissions(employeeId: string, claimantIds: string[]) {
@@ -159,7 +232,15 @@ export default function DepartmentAdminPage() {
     });
     const body = await response.json();
     setMessage(response.ok ? "合單名單已更新" : body.error || "合單名單更新失敗");
-    if (response.ok) await refresh();
+    if (response.ok) {
+      setScope((current) => ({
+        ...current,
+        claimantPermissions: [
+          ...current.claimantPermissions.filter((permission) => permission.employee_profile_id !== employeeId),
+          ...(body.claimantPermissions ?? [])
+        ]
+      }));
+    }
   }
 
   async function handleLogout() {
@@ -201,6 +282,7 @@ export default function DepartmentAdminPage() {
           <NavButton active={tab === "receipts"} icon={<ClipboardList size={16} />} label="單據列表" onClick={() => setTab("receipts")} />
           <NavButton active={tab === "payouts"} icon={<WalletCards size={16} />} label="員工請款" onClick={() => setTab("payouts")} />
           <NavButton active={tab === "stats"} icon={<ReceiptText size={16} />} label="單據統計" onClick={() => setTab("stats")} />
+          <NavButton active={tab === "permissions"} icon={<UsersRound size={16} />} label="合單名單" onClick={() => setTab("permissions")} />
         </nav>
         <div style={{ marginTop: "auto" }}>
           <NavButton active={false} icon={<KeyRound size={16} />} label="更改密碼" onClick={() => setPasswordModalOpen(true)} />
@@ -218,17 +300,10 @@ export default function DepartmentAdminPage() {
 
         {tab !== "stats" ? (
           <section className="metric-grid" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-            <Metric 
-              label="申請中人數" 
-              value={new Set(
-                scope.claims
-                  .filter(c => receiptById(scope.receipts, c.receipt_id)?.status === "submitted")
-                  .map(c => c.profile_id)
-              ).size.toString()} 
-            />
-            <Metric label="申請中單據" value={scope.receipts.filter((receipt) => receipt.status === "submitted").length.toString()} />
-            <Metric label="總收據請款金額" value={money(scope.claims.filter((claim) => receiptById(scope.receipts, claim.receipt_id)?.status === "submitted").reduce((sum, claim) => sum + Number(claim.claimed_amount || 0), 0))} />
-            <Metric label="總可請款金額" value={money(scope.claims.filter((claim) => receiptById(scope.receipts, claim.receipt_id)?.status === "submitted").reduce((sum, claim) => sum + Number(claim.subsidy_amount || 0), 0))} />
+            <Metric label="申請中人數" value={String(scope.summary?.pendingApplicantCount ?? 0)} />
+            <Metric label="申請中單據" value={String(scope.summary?.pendingReceiptCount ?? 0)} />
+            <Metric label="總收據請款金額" value={money(scope.summary?.totalClaimedAmount ?? 0)} />
+            <Metric label="總可請款金額" value={money(scope.summary?.totalSubsidyAmount ?? 0)} />
           </section>
         ) : null}
 
@@ -240,9 +315,13 @@ export default function DepartmentAdminPage() {
               attachmentsByReceipt={attachmentsByReceipt}
               profilesById={profilesById}
               departmentsById={departmentsById}
+              onOpenAttachment={openAttachment}
               onPaid={(id) => markReceipts([id], "settled")}
               onRejected={(id) => markReceipts([id], "rejected")}
               onRollback={(id) => markReceipts([id], "submitted")}
+              onDelete={(id) => {
+                if (window.confirm("確定要刪除此單據嗎？")) deleteReceipt(id);
+              }}
             />
           </section>
         ) : null}
@@ -288,6 +367,7 @@ export default function DepartmentAdminPage() {
                   attachmentsByReceipt={attachmentsByReceipt}
                   profilesById={profilesById}
                   departmentsById={departmentsById}
+                  onOpenAttachment={openAttachment}
                   isStats={true}
                 />
               </div>
@@ -354,9 +434,13 @@ export default function DepartmentAdminPage() {
               attachmentsByReceipt={attachmentsByReceipt}
               profilesById={profilesById}
               departmentsById={departmentsById}
+              onOpenAttachment={openAttachment}
               onPaid={(id) => markReceipts([id], "settled")}
               onRejected={(id) => markReceipts([id], "rejected")}
               onRollback={(id) => markReceipts([id], "submitted")}
+              onDelete={(id) => {
+                if (window.confirm("確定要刪除此單據嗎？")) deleteReceipt(id);
+              }}
             />
           </div>
         </div>
@@ -398,15 +482,17 @@ export default function DepartmentAdminPage() {
   );
 }
 
-function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profilesById, departmentsById, onPaid, onRejected, onRollback, isStats }: {
+function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profilesById, departmentsById, onOpenAttachment, onPaid, onRejected, onRollback, onDelete, isStats }: {
   receipts: ReceiptRow[];
   claimsByReceipt: Map<string, Claim[]>;
   attachmentsByReceipt: Map<string, Attachment[]>;
   profilesById: Map<string, Profile>;
   departmentsById: Map<string, Department>;
+  onOpenAttachment: (attachment: Attachment) => void;
   onPaid?: (id: string) => void;
   onRejected?: (id: string) => void;
   onRollback?: (id: string) => void;
+  onDelete?: (id: string) => void;
   isStats?: boolean;
 }) {
   const headers = isStats 
@@ -431,7 +517,7 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
             claims.length.toString(),
             money(Number(receipt.total_amount ?? 0)),
             money(claims.reduce((sum, claim) => sum + Number(claim.subsidy_amount || 0), 0)),
-            attachments.length ? attachments.map((attachment) => <a key={attachment.id} href={attachment.signed_url ?? "#"} target="_blank">{attachment.file_name ?? attachment.object_path.split("/").pop()}</a>) : "-",
+            attachments.length ? attachments.map((attachment) => <button className="link-button" key={attachment.id} onClick={() => onOpenAttachment(attachment)}>{attachment.file_name ?? attachment.object_path.split("/").pop()}</button>) : "-",
             null
           ];
         }
@@ -448,7 +534,7 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
           money(Number(receipt.total_amount ?? 0)),
           money(claims.reduce((sum, claim) => sum + Number(claim.subsidy_amount || 0), 0)),
           <span className={`status ${receipt.status === "settled" ? "paid" : receipt.status === "rejected" ? "rejected" : "claimed"}`} key="status">{statusLabels[receipt.status] ?? "申請中"}</span>,
-          attachments.length ? attachments.map((attachment) => <a key={attachment.id} href={attachment.signed_url ?? "#"} target="_blank">{attachment.file_name ?? attachment.object_path.split("/").pop()}</a>) : "-",
+          attachments.length ? attachments.map((attachment) => <button className="link-button" key={attachment.id} onClick={() => onOpenAttachment(attachment)}>{attachment.file_name ?? attachment.object_path.split("/").pop()}</button>) : "-",
           <div className="row-actions" key="actions">
             {onPaid && receipt.status === "submitted" ? <button className="ghost-btn compact" onClick={() => onPaid(receipt.id)}>請款</button> : null}
             {onRejected && receipt.status === "submitted" ? <button className="ghost-btn compact" onClick={() => onRejected(receipt.id)}>退單</button> : null}
@@ -463,6 +549,11 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
                 }}
               >
                 收回
+              </button>
+            ) : null}
+            {onDelete && (receipt.status === "submitted" || receipt.status === "rejected") ? (
+              <button className="ghost-btn compact" title="刪除單據" onClick={() => onDelete(receipt.id)}>
+                <Trash2 size={14} />
               </button>
             ) : null}
           </div>
@@ -529,10 +620,6 @@ function groupBy<T>(items: T[], keyFn: (item: T) => string) {
     map.set(key, [...(map.get(key) ?? []), item]);
   }
   return map;
-}
-
-function receiptById(receipts: ReceiptRow[], id: string) {
-  return receipts.find((receipt) => receipt.id === id);
 }
 
 function tabTitle(tab: Tab) {

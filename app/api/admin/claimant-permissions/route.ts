@@ -34,19 +34,42 @@ export async function POST(request: Request) {
     }
   }
 
-  const { error: deleteError } = await supabase.from("claimant_permissions").delete().eq("employee_profile_id", employeeProfileId);
-  if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 400 });
-  const rows = claimantIds
-    .filter((id) => id !== employeeProfileId)
-    .map((claimantId) => ({
+  const desired = new Set(claimantIds.filter((id) => id !== employeeProfileId));
+  const { data: existingRows, error: existingError } = await supabase
+    .from("claimant_permissions")
+    .select("department_id, employee_profile_id, claimant_profile_id")
+    .eq("employee_profile_id", employeeProfileId);
+  if (existingError) return NextResponse.json({ error: existingError.message }, { status: 400 });
+
+  const existing = new Set((existingRows ?? []).map((row) => row.claimant_profile_id));
+  const removed = [...existing].filter((claimantId) => !desired.has(claimantId));
+  const added = [...desired].filter((claimantId) => !existing.has(claimantId));
+
+  if (removed.length) {
+    const { error } = await supabase
+      .from("claimant_permissions")
+      .delete()
+      .eq("employee_profile_id", employeeProfileId)
+      .in("claimant_profile_id", removed);
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  if (added.length) {
+    const rows = added.map((claimantId) => ({
       department_id: employee.department_id,
       employee_profile_id: employeeProfileId,
       claimant_profile_id: claimantId,
       created_by: guard.session!.profileId
     }));
-  if (rows.length) {
     const { error } = await supabase.from("claimant_permissions").insert(rows);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   }
-  return NextResponse.json({ ok: true });
+
+  const { data: claimantPermissions, error: readUpdatedError } = await supabase
+    .from("claimant_permissions")
+    .select("department_id, employee_profile_id, claimant_profile_id")
+    .eq("employee_profile_id", employeeProfileId);
+  if (readUpdatedError) return NextResponse.json({ error: readUpdatedError.message }, { status: 400 });
+
+  return NextResponse.json({ ok: true, employee_profile_id: employeeProfileId, claimantPermissions });
 }

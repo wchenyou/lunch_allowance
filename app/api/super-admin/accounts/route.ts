@@ -23,13 +23,15 @@ type ProfilePayload = {
   password_updated_at?: string;
 };
 
+const profileSelect = "id, employee_no, display_name, email, phone, department_id, role, app_role, active, password_updated_at, login_disabled_at, created_at, updated_at";
+
 export async function GET() {
   const guard = await requireSession(["super_admin"]);
   if (guard.response) return guard.response;
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, employee_no, display_name, email, phone, department_id, role, app_role, active, password_updated_at, login_disabled_at, created_at, updated_at")
+    .select(profileSelect)
     .order("display_name", { ascending: true });
   if (error) return supabaseErrorResponse("讀取帳號資料", error, 500);
   return NextResponse.json({ profiles: data ?? [] });
@@ -81,8 +83,8 @@ export async function POST(request: Request) {
   }
 
   const profileWrite = id
-    ? await supabase.from("profiles").update(payload).eq("id", id).select("id, display_name, app_role, department_id, active").single()
-    : await supabase.from("profiles").insert(payload).select("id, display_name, app_role, department_id, active").single();
+    ? await supabase.from("profiles").update(payload).eq("id", id).select(profileSelect).single()
+    : await supabase.from("profiles").insert(payload).select(profileSelect).single();
   const { data, error } = profileWrite;
   if (error) return supabaseErrorResponse("儲存帳號資料", error);
   if (passwordHash) {
@@ -94,22 +96,14 @@ export async function POST(request: Request) {
     });
     if (credentialError) return supabaseErrorResponse("儲存帳號密碼", credentialError);
   }
-  const [deleteDepartments, deleteEmployees] = await Promise.all([
-    supabase.from("department_admin_departments").delete().eq("admin_profile_id", data.id),
-    supabase.from("department_admin_employees").delete().eq("admin_profile_id", data.id)
-  ]);
-  const deleteScopeError = deleteDepartments.error ?? deleteEmployees.error;
-  if (deleteScopeError) return supabaseErrorResponse("清除管理範圍", deleteScopeError);
-  if (appRole === "department_admin" && departmentIds.length) {
-    const { error: scopeError } = await supabase
-      .from("department_admin_departments")
-      .upsert(departmentIds.map((departmentId) => ({ admin_profile_id: data.id, department_id: departmentId })), {
-        onConflict: "admin_profile_id,department_id",
-        ignoreDuplicates: true
-      });
-    if (scopeError) return supabaseErrorResponse("儲存管理部門", scopeError);
+  const desiredDepartmentIds = appRole === "department_admin" ? departmentIds : [];
+  const { data: departmentScopes, error: scopeError } = await syncDepartmentScopes(supabase, data.id, desiredDepartmentIds);
+  if (scopeError) return supabaseErrorResponse("儲存管理部門", scopeError);
+  if (appRole !== "department_admin") {
+    const { error: employeeScopeError } = await supabase.from("department_admin_employees").delete().eq("admin_profile_id", data.id);
+    if (employeeScopeError) return supabaseErrorResponse("清除管理員工", employeeScopeError);
   }
-  return NextResponse.json({ profile: data });
+  return NextResponse.json({ profile: data, departmentScopes });
 }
 
 export async function DELETE(request: Request) {
@@ -152,5 +146,40 @@ export async function DELETE(request: Request) {
   ]);
   const { error } = await supabase.from("profiles").delete().eq("id", id);
   if (error) return supabaseErrorResponse("刪除帳號", error);
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, id });
+}
+
+async function syncDepartmentScopes(supabase: ReturnType<typeof createSupabaseAdminClient>, adminProfileId: string, desiredDepartmentIds: string[]) {
+  const desired = new Set(desiredDepartmentIds);
+  const { data: existingRows, error: readError } = await supabase
+    .from("department_admin_departments")
+    .select("admin_profile_id, department_id")
+    .eq("admin_profile_id", adminProfileId);
+  if (readError) return { data: null, error: readError };
+
+  const existing = new Set((existingRows ?? []).map((row) => row.department_id));
+  const removed = [...existing].filter((departmentId) => !desired.has(departmentId));
+  const added = [...desired].filter((departmentId) => !existing.has(departmentId));
+
+  if (removed.length) {
+    const { error } = await supabase
+      .from("department_admin_departments")
+      .delete()
+      .eq("admin_profile_id", adminProfileId)
+      .in("department_id", removed);
+    if (error) return { data: null, error };
+  }
+
+  if (added.length) {
+    const { error } = await supabase
+      .from("department_admin_departments")
+      .insert(added.map((departmentId) => ({ admin_profile_id: adminProfileId, department_id: departmentId })));
+    if (error) return { data: null, error };
+  }
+
+  const { data, error } = await supabase
+    .from("department_admin_departments")
+    .select("admin_profile_id, department_id")
+    .eq("admin_profile_id", adminProfileId);
+  return { data: data ?? [], error };
 }

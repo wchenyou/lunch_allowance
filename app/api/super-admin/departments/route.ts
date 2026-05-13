@@ -62,5 +62,5 @@ export async function DELETE(request: Request) {
 
   const { error } = await supabase.from("departments").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, id });
 }

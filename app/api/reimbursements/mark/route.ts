@@ -20,6 +20,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
   }
-  await markReceipts(receiptIds, status);
-  return NextResponse.json({ ok: true });
+  const result = await markReceipts(receiptIds, status);
+  return NextResponse.json({ ok: true, ...(result ?? {}) });
 }

@@ -218,7 +218,7 @@ async function upsertReceiptSupabase(input: ReceiptInput, receiptId?: string) {
     note: allocation.note ?? null,
     status: status === "paid" ? "reimbursed" : status === "rejected" ? "rejected" : "claimed"
   }));
-  const { error: claimError } = await supabase.from("receipt_claims").insert(claims);
+  const { data: savedClaims, error: claimError } = await supabase.from("receipt_claims").insert(claims).select("*");
   if (claimError) throw new Error(claimError.message);
 
   // Return only the newly created/updated receipt — no full-table re-read
@@ -228,7 +228,10 @@ async function upsertReceiptSupabase(input: ReceiptInput, receiptId?: string) {
     .eq("id", nextReceiptId)
     .single();
   if (readError || !savedReceipt) throw new Error(readError?.message ?? "Failed to read saved receipt");
-  return { receipts: [toReceipt(savedReceipt)] };
+  return {
+    receipts: [toReceipt(savedReceipt)],
+    allocations: (savedClaims ?? []).map(toAllocation)
+  };
 }
 
 async function deleteReceiptSupabase(receiptId: string) {
@@ -271,21 +274,30 @@ async function markReceiptsSupabase(receiptIds: string[], status: string) {
     const { data: claims, error: readError } = await supabase
       .from("receipt_claims").select("id, subsidy_amount").in("receipt_id", receiptIds);
     if (readError) throw new Error(readError.message);
-    const claimIds = (claims ?? []).map((c: any) => c.id);
-    const byId = new Map((claims ?? []).map((c: any) => [c.id, Number(c.subsidy_amount ?? 0)]));
     // Bulk update with case expression via rpc is complex; use per-amount grouping as next best
-    await Promise.all(
+    const updates = await Promise.all(
       [...new Set((claims ?? []).map((c: any) => Number(c.subsidy_amount ?? 0)))].map((amt) => {
         const ids = (claims ?? []).filter((c: any) => Number(c.subsidy_amount ?? 0) === amt).map((c: any) => c.id);
         return supabase.from("receipt_claims").update({ status: "reimbursed", reimbursed_amount: amt }).in("id", ids);
       })
     );
+    const updateError = updates.find((result) => result.error)?.error;
+    if (updateError) throw new Error(updateError.message);
   } else {
     const claimPatch = { status: normalized === "rejected" ? "rejected" : "claimed", reimbursed_amount: 0 };
     const { error: claimError } = await supabase.from("receipt_claims").update(claimPatch).in("receipt_id", receiptIds);
     if (claimError) throw new Error(claimError.message);
   }
-  // No full re-read — caller handles its own refresh
+  const [updatedReceipts, updatedClaims] = await Promise.all([
+    supabase.from("receipts").select("*").in("id", receiptIds),
+    supabase.from("receipt_claims").select("*").in("receipt_id", receiptIds)
+  ]);
+  const readError = updatedReceipts.error ?? updatedClaims.error;
+  if (readError) throw new Error(readError.message);
+  return {
+    receipts: updatedReceipts.data ?? [],
+    claims: updatedClaims.data ?? []
+  };
 }
 
 async function readLocal(): Promise<Database> {

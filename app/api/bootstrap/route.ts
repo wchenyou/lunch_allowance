@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/app/lib/api/guards";
-import { calculateDailyClaimSubsidies, normalizeStatus } from "@/app/lib/calculations";
+import { normalizeStatus } from "@/app/lib/calculations";
 import { RECEIPT_IMAGE_BUCKET } from "@/app/lib/domain";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 
@@ -98,7 +98,7 @@ export async function GET() {
         .order("created_at", { ascending: true })
     : { data: [] };
 
-  let attachments = (attachmentsRaw ?? []).map((a: any) => ({
+  const attachments = (attachmentsRaw ?? []).map((a: any) => ({
     attachment_id: a.id,
     receipt_id: a.receipt_id,
     bucket: a.bucket ?? RECEIPT_IMAGE_BUCKET,
@@ -109,18 +109,7 @@ export async function GET() {
     created_at: a.created_at
   }));
 
-  // ── 5. Signed URLs for attachments ────────────────────────────────────────
-  if (attachments.length > 0) {
-    const bucket = process.env.RECEIPT_IMAGE_BUCKET || RECEIPT_IMAGE_BUCKET;
-    const paths = attachments.map((a) => a.object_path);
-    const { data: signedUrlsData } = await supabase.storage.from(bucket).createSignedUrls(paths, 60 * 60);
-    if (signedUrlsData) {
-      const urlMap = new Map(signedUrlsData.map((d) => [d.path, d.signedUrl]));
-      attachments = attachments.map((a) => ({ ...a, signed_url: urlMap.get(a.object_path) ?? undefined }));
-    }
-  }
-
-  // ── 6. Allowed claimants & departments (scoped lookup) ───────────────────
+  // ── 5. Allowed claimants & departments (scoped lookup) ───────────────────
   let allowedClaimants: any[] = [currentEmployee];
   let allowedDepartments: any[] = [];
 
@@ -144,12 +133,9 @@ export async function GET() {
       const myDeptId = currentEmployee.department_id;
       const targetDeptIds = new Set<string>(myDeptId ? [myDeptId] : []);
 
-      const [{ data: myDeptAdmins }, { data: claimantPerms }] = await Promise.all([
-        myDeptId
-          ? supabase.from("department_admin_departments").select("admin_profile_id").eq("department_id", myDeptId)
-          : Promise.resolve({ data: [] }),
-        supabase.from("claimant_permissions").select("claimant_profile_id").eq("employee_profile_id", currentProfileId)
-      ]);
+      const { data: myDeptAdmins } = myDeptId
+        ? await supabase.from("department_admin_departments").select("admin_profile_id").eq("department_id", myDeptId)
+        : { data: [] };
 
       const adminIds = new Set([...(myDeptAdmins ?? []).map((s: any) => s.admin_profile_id), currentProfileId]);
       const { data: allManagedScopes } = await supabase
@@ -184,25 +170,12 @@ export async function GET() {
     console.error("[bootstrap] allowedClaimants lookup failed:", err);
   }
 
-  // ── 7. Financial summary calculation ─────────────────────────────────────
-  const ownAllocations = allocations.filter((a) => a.employee_id === currentProfileId);
-  const paidReceiptIds = new Set(
-    receipts.filter((r) => normalizeStatus(r.reimbursement_status) === "paid").map((r) => r.receipt_id)
-  );
-  const submittedTotal = receipts.reduce((sum, r) => sum + Number(r.total_amount || 0), 0);
-  const paidTotal = ownAllocations
-    .filter((a) => paidReceiptIds.has(a.receipt_id))
-    .reduce((sum, a) => sum + Number(a.amount || 0), 0);
-
-  const pendingReceipts = receipts.filter(
-    (r) => normalizeStatus(r.reimbursement_status) !== "paid" && normalizeStatus(r.reimbursement_status) !== "rejected"
-  );
-  const pendingReceiptIds = new Set(pendingReceipts.map((r) => r.receipt_id));
-  const allPendingClaims = ownAllocations
-    .filter((a) => pendingReceiptIds.has(a.receipt_id))
-    .map((a) => ({ id: a.allocation_id, profileId: a.employee_id, claimDate: a.date, claimedAmount: a.amount, createdAt: a.created_at }));
-  const calculatedPendingSubsidies = calculateDailyClaimSubsidies(allPendingClaims);
-  const totalSubsidy = calculatedPendingSubsidies.reduce((sum, s) => sum + s.subsidyAmount, 0);
+  // ── 6. Financial summary calculation ─────────────────────────────────────
+  const { data: summaryData, error: summaryError } = await supabase.rpc("employee_receipt_summary", {
+    target_profile_id: currentProfileId
+  });
+  if (summaryError) return NextResponse.json({ error: summaryError.message }, { status: 500 });
+  const summary = normalizeEmployeeSummary(summaryData);
 
   return NextResponse.json({
     employees: [currentEmployee],
@@ -211,13 +184,17 @@ export async function GET() {
     receipts,
     allocations,
     attachments,
-    summary: {
-      submittedTotal,
-      paidTotal,
-      unpaidTotal: Math.max(0, submittedTotal - paidTotal),
-      pendingCount: pendingReceipts.length,
-      pendingTotalAmount: pendingReceipts.reduce((sum, r) => sum + Number(r.total_amount || 0), 0),
-      pendingClaimableAmount: totalSubsidy
-    }
+    summary
   });
+}
+
+function normalizeEmployeeSummary(value: any) {
+  return {
+    submittedTotal: Number(value?.submittedTotal ?? 0),
+    paidTotal: Number(value?.paidTotal ?? 0),
+    unpaidTotal: Number(value?.unpaidTotal ?? 0),
+    pendingCount: Number(value?.pendingCount ?? 0),
+    pendingTotalAmount: Number(value?.pendingTotalAmount ?? 0),
+    pendingClaimableAmount: Number(value?.pendingClaimableAmount ?? 0)
+  };
 }

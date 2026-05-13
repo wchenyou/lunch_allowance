@@ -46,5 +46,16 @@ export async function POST(request: Request) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ attachment: data });
+  return NextResponse.json({
+    attachment: {
+      attachment_id: data.id,
+      receipt_id: data.receipt_id,
+      bucket: data.bucket ?? RECEIPT_IMAGE_BUCKET,
+      object_path: data.object_path,
+      file_name: data.object_path?.split("/").pop() ?? "receipt.jpg",
+      content_type: data.content_type ?? "image/jpeg",
+      size_bytes: Number(data.size_bytes ?? 0),
+      created_at: data.created_at
+    }
+  });
 }

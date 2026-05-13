@@ -112,8 +112,8 @@ export default function SuperAdminPage() {
       const body = await readJson(response);
       setMessage(response.ok ? "部門已儲存" : body.error || "部門儲存失敗");
       if (response.ok) {
+        setDepartments((current) => upsertSorted(current, body.department, (department) => department.name));
         closeDepartmentModal();
-        await refresh();
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "部門儲存失敗");
@@ -131,7 +131,10 @@ export default function SuperAdminPage() {
     });
     const body = await response.json();
     setMessage(response.ok ? "部門已刪除" : body.error || "部門刪除失敗");
-    if (response.ok) await refresh();
+    if (response.ok) {
+      setDepartments((current) => current.filter((department) => department.id !== (body.id ?? id)));
+      setDepartmentScopes((current) => current.filter((scope) => scope.department_id !== (body.id ?? id)));
+    }
   }
 
   async function saveAccount(event: FormEvent) {
@@ -147,7 +150,11 @@ export default function SuperAdminPage() {
       const body = await readJson(response);
       setMessage(response.ok ? "帳號已儲存" : body.error || "帳號儲存失敗");
       if (response.ok) {
-        await refresh();
+        setProfiles((current) => upsertSorted(current, body.profile, (profile) => profile.display_name));
+        setDepartmentScopes((current) => [
+          ...current.filter((scope) => scope.admin_profile_id !== body.profile.id),
+          ...(body.departmentScopes ?? [])
+        ]);
         closeAccountModal();
       }
     } catch (error) {
@@ -166,7 +173,11 @@ export default function SuperAdminPage() {
     });
     const body = await response.json();
     setMessage(response.ok ? "帳號已刪除" : body.error || "帳號刪除失敗");
-    if (response.ok) await refresh();
+    if (response.ok) {
+      const deletedId = body.id ?? id;
+      setProfiles((current) => current.filter((profile) => profile.id !== deletedId));
+      setDepartmentScopes((current) => current.filter((scope) => scope.admin_profile_id !== deletedId));
+    }
   }
 
   async function handleLogout() {
@@ -616,6 +627,11 @@ export default function SuperAdminPage() {
       ) : null}
     </div>
   );
+}
+
+function upsertSorted<T extends { id: string }>(items: T[], item: T | undefined, keyFn: (item: T) => string) {
+  if (!item) return items;
+  return [...items.filter((current) => current.id !== item.id), item].sort((a, b) => keyFn(a).localeCompare(keyFn(b), "zh-Hant"));
 }
 
 async function readJson(response: Response) {

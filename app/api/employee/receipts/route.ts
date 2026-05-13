@@ -34,7 +34,16 @@ export async function POST(request: Request) {
   if (!allocationIds.includes(profileId)) allocationIds.unshift(profileId);
   try {
     const supabase = createSupabaseAdminClient();
-    const myProfile = await supabase.from("profiles").select("department_id").eq("id", guard.session!.profileId).single();
+    const [myProfile, existingClaimsResult] = await Promise.all([
+      supabase.from("profiles").select("department_id").eq("id", guard.session!.profileId).single(),
+      supabase
+        .from("receipt_claims")
+        .select("receipt_id, profile_id")
+        .in("profile_id", allocationIds)
+        .eq("claim_date", date)
+    ]);
+    if (myProfile.error) throw myProfile.error;
+    if (existingClaimsResult.error) throw existingClaimsResult.error;
     const myDeptId = myProfile.data?.department_id;
 
     const { data: myDeptAdmins } = await supabase
@@ -59,23 +68,17 @@ export async function POST(request: Request) {
       }
     }
 
-    console.log("[Receipt POST] profileId:", guard.session!.profileId, "myDeptId:", myDeptId, "targetDeptIds:", Array.from(targetDeptIds));
-
-    const { data: validProfiles } = await supabase.from("profiles").select("id").in("department_id", Array.from(targetDeptIds));
+    const { data: validProfiles } = targetDeptIds.size
+      ? await supabase.from("profiles").select("id").in("department_id", Array.from(targetDeptIds))
+      : { data: [] };
     const allowedIds = new Set([guard.session!.profileId, ...(validProfiles ?? []).map(p => p.id)]);
 
     if (allocationIds.some((id) => !allowedIds.has(id))) {
       return NextResponse.json({ error: "只能選擇行政維護允許的請款人" }, { status: 403 });
     }
 
-    const { data: existingClaims, error: claimError } = await supabase
-      .from("receipt_claims")
-      .select("receipt_id, profile_id")
-      .in("profile_id", allocationIds)
-      .eq("claim_date", date);
-    if (claimError) throw claimError;
-
     // 分開查詢收據狀態，避免巢狀 join 失敗導致整個驗證中斷
+    const existingClaims = existingClaimsResult.data ?? [];
     const existingReceiptIds = [...new Set((existingClaims ?? []).map((c: any) => c.receipt_id))];
     const { data: receiptStatuses } = existingReceiptIds.length
       ? await supabase.from("receipts").select("id, status").in("id", existingReceiptIds)
@@ -113,8 +116,13 @@ export async function POST(request: Request) {
       reimbursement_status: "pending",
       allocations
     });
-    const receipt = db.receipts.find((item) => item.date === date && item.payer_employee_id === profileId && item.total_amount === totalAmount) ?? db.receipts[0];
-    return NextResponse.json({ receipt });
+    const receipt =
+      db.receipts.find((item) => item.date === date && item.payer_employee_id === profileId && item.total_amount === totalAmount) ??
+      db.receipts[0];
+    const receiptAllocations = receipt
+      ? db.allocations.filter((allocation) => allocation.receipt_id === receipt.receipt_id)
+      : [];
+    return NextResponse.json({ receipt, allocations: receiptAllocations });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to submit receipt" }, { status: 500 });
   }

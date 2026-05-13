@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/app/lib/api/guards";
-import { RECEIPT_IMAGE_BUCKET } from "@/app/lib/domain";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 
 const DEFAULT_RECEIPT_LIMIT = 200;
@@ -17,11 +16,21 @@ export async function GET(request: Request) {
   const status = url.searchParams.get("status") ?? "";
   const category = url.searchParams.get("category") ?? "";
   const mode = url.searchParams.get("mode") ?? "dashboard";
+  const view = url.searchParams.get("view") ?? (mode === "stats" ? "stats" : "receipts");
   const limit = clampLimit(url.searchParams.get("limit"));
   const supabase = createSupabaseAdminClient();
   const departmentIds = session.role === "super_admin" ? undefined : session.departmentIds;
   if (departmentIds && departmentIds.length === 0) {
-    return NextResponse.json({ departments: [], profiles: [], receipts: [], claims: [], attachments: [], claimantPermissions: [], limited: false });
+    return NextResponse.json({
+      departments: [],
+      profiles: [],
+      receipts: [],
+      claims: [],
+      attachments: [],
+      claimantPermissions: [],
+      summary: emptyAdminSummary(),
+      limited: false
+    });
   }
 
   const departmentQuery = supabase.from("departments").select("*").order("name", { ascending: true });
@@ -62,16 +71,28 @@ export async function GET(request: Request) {
   let claimantPermissionsQuery = supabase.from("claimant_permissions").select("*");
   if (departmentIds?.length) claimantPermissionsQuery = claimantPermissionsQuery.in("department_id", departmentIds);
 
-  const [departments, profiles, receipts, claimantPermissions] = await Promise.all([departmentQuery, profileQuery, receiptQuery, claimantPermissionsQuery]);
+  const shouldLoadDirectory = view !== "summary";
+  const shouldLoadReceipts = view !== "permissions" && view !== "summary";
+  const shouldLoadSummary = view !== "permissions" && mode !== "stats";
+  const [departments, profiles, receipts, claimantPermissions, summaryResult] = await Promise.all([
+    shouldLoadDirectory ? departmentQuery : Promise.resolve({ data: [], error: null }),
+    shouldLoadDirectory ? profileQuery : Promise.resolve({ data: [], error: null }),
+    shouldLoadReceipts ? receiptQuery : Promise.resolve({ data: [], error: null }),
+    view === "permissions" ? claimantPermissionsQuery : Promise.resolve({ data: [], error: null }),
+    shouldLoadSummary
+      ? supabase.rpc("admin_receipt_dashboard_summary", { scoped_department_ids: departmentIds ?? null })
+      : Promise.resolve({ data: null, error: null })
+  ]);
   const allReceipts = receipts.data ?? [];
   const limited = mode !== "stats" && allReceipts.length > DEFAULT_RECEIPT_LIMIT;
   let scopedReceipts = limited ? allReceipts.slice(0, DEFAULT_RECEIPT_LIMIT) : allReceipts;
   const initialReceiptIds = scopedReceipts.map((receipt) => receipt.id);
+  const shouldLoadAttachments = view === "receipts" || view === "stats";
   const [claims, attachments] = await Promise.all([
     initialReceiptIds.length ? supabase.from("receipt_claims").select("*").in("receipt_id", initialReceiptIds) : Promise.resolve({ data: [], error: null }),
-    initialReceiptIds.length ? supabase.from("receipt_attachments").select("*").in("receipt_id", initialReceiptIds) : Promise.resolve({ data: [], error: null })
+    shouldLoadAttachments && initialReceiptIds.length ? supabase.from("receipt_attachments").select("*").in("receipt_id", initialReceiptIds) : Promise.resolve({ data: [], error: null })
   ]);
-  const error = departments.error ?? profiles.error ?? receipts.error ?? claimantPermissions.error ?? claims.error ?? attachments.error;
+  const error = departments.error ?? profiles.error ?? receipts.error ?? claimantPermissions.error ?? summaryResult.error ?? claims.error ?? attachments.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   let scopedClaims = claims.data ?? [];
   if (employee) {
@@ -84,31 +105,18 @@ export async function GET(request: Request) {
     scopedClaims = scopedClaims.filter((claim) => matchingReceiptIds.has(claim.receipt_id));
   }
   const receiptIds = new Set(scopedReceipts.map((receipt) => receipt.id));
-  const bucket = process.env.RECEIPT_IMAGE_BUCKET || RECEIPT_IMAGE_BUCKET;
-  let attachmentsWithUrls = (attachments.data ?? []).filter((attachment) => receiptIds.has(attachment.receipt_id)).map((attachment) => ({
+  const scopedAttachments = (attachments.data ?? []).filter((attachment) => receiptIds.has(attachment.receipt_id)).map((attachment) => ({
     ...attachment,
-    file_name: attachment.object_path.split("/").pop(),
-    signed_url: undefined as string | undefined
+    file_name: attachment.object_path.split("/").pop()
   }));
-
-  if (attachmentsWithUrls.length > 0) {
-    const paths = attachmentsWithUrls.map((a) => a.object_path);
-    const { data: signedUrlsData } = await supabase.storage.from(bucket).createSignedUrls(paths, 60 * 60);
-    if (signedUrlsData) {
-      const urlMap = new Map(signedUrlsData.map((d) => [d.path, d.signedUrl]));
-      attachmentsWithUrls = attachmentsWithUrls.map((attachment) => ({
-        ...attachment,
-        signed_url: urlMap.get(attachment.object_path) ?? undefined
-      }));
-    }
-  }
   return NextResponse.json({
     departments: departments.data ?? [],
     profiles: profiles.data ?? [],
     receipts: scopedReceipts,
     claims: scopedClaims,
-    attachments: attachmentsWithUrls,
+    attachments: scopedAttachments,
     claimantPermissions: claimantPermissions.data ?? [],
+    summary: shouldLoadSummary ? normalizeAdminSummary(summaryResult.data) : undefined,
     limited
   });
 }
@@ -117,4 +125,22 @@ function clampLimit(value: string | null) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_RECEIPT_LIMIT;
   return Math.min(Math.floor(parsed), MAX_RECEIPT_LIMIT);
+}
+
+function emptyAdminSummary() {
+  return {
+    pendingApplicantCount: 0,
+    pendingReceiptCount: 0,
+    totalClaimedAmount: 0,
+    totalSubsidyAmount: 0
+  };
+}
+
+function normalizeAdminSummary(value: any) {
+  return {
+    pendingApplicantCount: Number(value?.pendingApplicantCount ?? 0),
+    pendingReceiptCount: Number(value?.pendingReceiptCount ?? 0),
+    totalClaimedAmount: Number(value?.totalClaimedAmount ?? 0),
+    totalSubsidyAmount: Number(value?.totalSubsidyAmount ?? 0)
+  };
 }
