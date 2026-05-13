@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/options", "/api/supabase/health"];
-const ROLE_COOKIE = "lunch_allowance_session";
+const ROLE_COOKIE = "lunch_allowance_session"; // 舊版共用 Cookie（向下相容）
+const ROLE_COOKIES = { super_admin: "la_s_super", department_admin: "la_s_admin", employee: "la_s_emp" };
 const AUTH_ENFORCEMENT_ENABLED = true;
 
 export async function middleware(request: NextRequest) {
@@ -14,7 +15,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const session = await decodeSession(request.cookies.get(ROLE_COOKIE)?.value);
+  // 嘗試所有角色的 Cookie，優先新版角色專屬 Cookie
+  let session: { role?: string } | null = null;
+  for (const cookieName of Object.values(ROLE_COOKIES)) {
+    session = await decodeSession(request.cookies.get(cookieName)?.value);
+    if (session) break;
+  }
+  // Fallback 到舊版共用 Cookie
+  if (!session) {
+    session = await decodeSession(request.cookies.get(ROLE_COOKIE)?.value);
+  }
   const hasLegacyAdminSession = request.cookies.get("admin_session")?.value === "ok";
   if (!session && !hasLegacyAdminSession) {
     if (pathname.startsWith("/api")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

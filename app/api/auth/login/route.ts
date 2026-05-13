@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { appRoles, toAppRole } from "@/app/lib/auth/roles";
-import { APP_SESSION_COOKIE, encodeSession } from "@/app/lib/auth/session";
+import { APP_SESSION_COOKIE, SESSION_COOKIES, encodeSession } from "@/app/lib/auth/session";
 import { verifyPassword } from "@/app/lib/auth/password";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 import type { AppRole, ProfileRole } from "@/app/lib/domain";
@@ -40,21 +40,19 @@ function loginWithAdminPassword(password: string) {
     return NextResponse.json({ error: "管理密碼錯誤" }, { status: 401 });
   }
 
+  const sessionValue = encodeSession({ profileId: "super-admin", role: "super_admin", departmentIds: [], displayName: "系統管理員", account: "admin" });
+  const cookieOptions = {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 12
+  };
   const response = NextResponse.json({ ok: true, role: "super_admin", redirect_to: "/super-admin" });
-  response.cookies.set(APP_SESSION_COOKIE, encodeSession({ profileId: "super-admin", role: "super_admin", departmentIds: [], displayName: "系統管理員", account: "admin" }), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 60 * 12
-  });
-  response.cookies.set("admin_session", "ok", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 60 * 12
-  });
+  response.cookies.set(SESSION_COOKIES.super_admin, sessionValue, cookieOptions);
+  // 清除舊版共用 Cookie（升級過渡）
+  response.cookies.delete(APP_SESSION_COOKIE);
+  response.cookies.set("admin_session", "ok", cookieOptions);
   return response;
 }
 
@@ -189,14 +187,19 @@ async function finishProfileLogin(
   const departmentIds = role === "department_admin" ? (scopes ?? []).map((scope) => scope.department_id) : profile.department_id ? [profile.department_id] : [];
   await supabase.from("profiles").update({ last_login_at: new Date().toISOString() }).eq("id", profile.id);
 
-  const redirectTo = role === "super_admin" ? "/super-admin" : role === "department_admin" ? "/admin" : "/employee";
-  const response = NextResponse.json({ ok: true, role, redirect_to: redirectTo, must_change_password: credential?.must_change_password ?? false });
-  response.cookies.set(APP_SESSION_COOKIE, encodeSession({ profileId: profile.id, role, departmentIds, displayName: profile.display_name, account: profile.employee_no || profile.display_name }), {
+  const cookieOptions = {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "lax" as const,
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 60 * 60 * 12
-  });
+  };
+  const redirectTo = role === "super_admin" ? "/super-admin" : role === "department_admin" ? "/admin" : "/employee";
+  const response = NextResponse.json({ ok: true, role, redirect_to: redirectTo, must_change_password: credential?.must_change_password ?? false });
+  const sessionValue = encodeSession({ profileId: profile.id, role, departmentIds, displayName: profile.display_name, account: profile.employee_no || profile.display_name });
+  // 設定角色專屬 Cookie
+  response.cookies.set(SESSION_COOKIES[role], sessionValue, cookieOptions);
+  // 清除舊版共用 Cookie（升級過渡）
+  response.cookies.delete(APP_SESSION_COOKIE);
   return response;
 }
