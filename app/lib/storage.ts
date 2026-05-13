@@ -81,6 +81,7 @@ const toReceipt = (receipt: any): Receipt => ({
   receipt_no: receipt.receipt_no ?? "",
   note: receipt.note ?? "",
   reimbursement_status: normalizeStatus(receipt.status),
+  category: receipt.metadata?.category ?? null,
   created_at: receipt.created_at,
   updated_at: receipt.updated_at
 });
@@ -210,7 +211,8 @@ async function upsertReceiptSupabase(input: ReceiptInput, receiptId?: string) {
     metadata: {
       applicant_name: submitter.display_name,
       claimant_names: claimantNames,
-      claimant_ids: input.allocations.map((allocation) => allocation.employee_id)
+      claimant_ids: input.allocations.map((allocation) => allocation.employee_id),
+      category: input.category ?? "餐費補助"
     }
   };
 

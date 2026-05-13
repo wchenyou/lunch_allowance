@@ -21,8 +21,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
       return NextResponse.json({ error: "沒有權限刪除此單據" }, { status: 403 });
     }
 
-    if (receipt.reimbursement_status !== "pending") {
-      return NextResponse.json({ error: "只能刪除申請中的單據" }, { status: 400 });
+    if (receipt.reimbursement_status !== "pending" && receipt.reimbursement_status !== "rejected") {
+      return NextResponse.json({ error: "只能刪除申請中或被退單的單據" }, { status: 400 });
     }
 
     await deleteReceipt(id);

@@ -27,7 +27,8 @@ export default function EmployeeReceiptPage() {
     merchant: "",
     receipt_no: "",
     total_amount: "",
-    note: ""
+    note: "",
+    category: "餐費補助"
   });
   const [isMultiClaim, setIsMultiClaim] = useState(false);
   const [claimInputs, setClaimInputs] = useState<ClaimInput[]>([]);
@@ -50,7 +51,14 @@ export default function EmployeeReceiptPage() {
     setEmployee(currentEmployee);
     setAllowedClaimants(data.allowedClaimants ?? data.employees ?? []);
     setDepartments(data.departments ?? []);
-    setReceipts(data.receipts ?? []);
+    const sortedReceipts = (data.receipts ?? []).sort((a: Receipt, b: Receipt) => {
+      const aRejected = a.reimbursement_status === "rejected";
+      const bRejected = b.reimbursement_status === "rejected";
+      if (aRejected && !bRejected) return -1;
+      if (!aRejected && bRejected) return 1;
+      return 0; // Keep original order (usually by date) for items with same status
+    });
+    setReceipts(sortedReceipts);
     setAttachments(data.attachments ?? []);
     setSummary(data.summary ?? { submittedTotal: 0, paidTotal: 0, unpaidTotal: 0, pendingCount: 0, pendingTotalAmount: 0, pendingClaimableAmount: 0 });
     if (currentEmployee) {
@@ -123,6 +131,7 @@ export default function EmployeeReceiptPage() {
         receipt_no: form.receipt_no,
         total_amount: totalAmount,
         note: form.note,
+        category: form.category,
         allocations: validClaims.map((claim) => ({ employee_id: claim.employee_id, amount: claim.amount, note: form.note }))
       })
     });
@@ -137,7 +146,7 @@ export default function EmployeeReceiptPage() {
       await uploadReceiptImage(receipt.receipt_id, imageFile);
     }
     setMessage("");
-    setForm((current) => ({ ...current, merchant: "", receipt_no: "", total_amount: "", note: "" }));
+    setForm((current) => ({ ...current, merchant: "", receipt_no: "", total_amount: "", note: "", category: "餐費補助" }));
     setImageFile(null);
     setIsMultiClaim(false);
     setClaimInputs([{ employee_id: employee.employee_id, amount: "" }]);
@@ -276,8 +285,10 @@ export default function EmployeeReceiptPage() {
               const claimNames = receipt.claimant_names?.length ? receipt.claimant_names.join("、") : employee?.name ?? "-";
               const attachment = receiptAttachments.get(receipt.receipt_id);
               const merchant = receipt.merchant || "未填寫店家";
-              const isPending = statusLabel(receipt.reimbursement_status) === "申請中";
-              
+              const status = receipt.reimbursement_status;
+              const isRejected = status === "rejected";
+              const isPending = status === "pending";
+              const canDelete = isPending || isRejected;
               return (
                 <div className="mini-list-item" key={receipt.receipt_id} style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "stretch", position: "relative" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -285,15 +296,25 @@ export default function EmployeeReceiptPage() {
                       {receipt.date} (星期{getDayOfWeek(receipt.date)})
                     </span>
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <span style={{ color: isPending ? "var(--accent)" : "var(--soft)", fontSize: "12px", fontWeight: 500, padding: "2px 6px", borderRadius: "4px", background: "var(--bg)" }}>
+                      <span 
+                        style={{ 
+                          color: isRejected ? "#ef4444" : isPending ? "var(--accent)" : "var(--soft)", 
+                          fontSize: "12px", 
+                          fontWeight: 600, 
+                          padding: "2px 8px", 
+                          borderRadius: "4px", 
+                          background: isRejected ? "rgba(239, 68, 68, 0.1)" : "var(--bg)",
+                          border: isRejected ? "1px solid rgba(239, 68, 68, 0.2)" : "none"
+                        }}
+                      >
                         {statusLabel(receipt.reimbursement_status)}
                       </span>
-                      {isPending && (
+                      {canDelete && (
                         <button 
                           className="icon-btn" 
                           style={{ color: "#ef4444", padding: "4px", margin: "-4px" }}
                           onClick={() => handleDeleteReceipt(receipt.receipt_id)}
-                          title="刪除抽單"
+                          title={isRejected ? "刪除退單" : "刪除抽單"}
                         >
                           <X size={18} />
                         </button>
@@ -303,7 +324,10 @@ export default function EmployeeReceiptPage() {
 
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <strong style={{ fontSize: "16px", color: "var(--text)" }}>{merchant}</strong>
-                    <span style={{ fontWeight: 600, color: "var(--text)", fontSize: "15px" }}>{money(receipt.total_amount)}</span>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" }}>
+                      <span style={{ fontWeight: 600, color: "var(--text)", fontSize: "15px" }}>{money(receipt.total_amount)}</span>
+                      <span style={{ fontSize: "11px", color: "var(--soft)", background: "var(--bg)", padding: "1px 6px", borderRadius: "4px" }}>{receipt.category || "餐費補助"}</span>
+                    </div>
                   </div>
                   
                   {receipt.claimant_names && receipt.claimant_names.length > 1 && (
@@ -345,8 +369,11 @@ export default function EmployeeReceiptPage() {
             
             <form className="mobile-form" style={{ padding: 0 }} onSubmit={submitReceipt}>
               <label>
-                申請人
-                <input value={employee?.name ?? ""} disabled style={{ opacity: 0.7, cursor: "not-allowed" }} />
+                項目
+                <select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>
+                  <option value="餐費補助">餐費補助</option>
+                  <option value="物品請購">物品請購</option>
+                </select>
               </label>
               <label>
                 單據日期 (星期{getDayOfWeek(form.date)})

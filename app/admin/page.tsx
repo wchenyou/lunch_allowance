@@ -23,7 +23,7 @@ type ReceiptRow = {
   subsidy_amount: number;
   reimbursed_amount: number;
   status: string;
-  metadata?: { applicant_name?: string; claimant_names?: string[] };
+  metadata?: { applicant_name?: string; claimant_names?: string[]; category?: string };
 };
 type Permission = { department_id: string; employee_profile_id: string; claimant_profile_id: string };
 type AdminScope = {
@@ -410,7 +410,7 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
           return [
             index + 1,
             receipt.receipt_date,
-            "餐費補助",
+            receipt.metadata?.category ?? "餐費補助",
             departmentsById.get(receipt.department_id ?? "")?.name ?? "-",
             claims.map((claim) => profilesById.get(claim.profile_id)?.display_name ?? "-").join("、"),
             claims.length.toString(),
@@ -424,7 +424,7 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
         return [
           index + 1,
           receipt.receipt_date,
-          "餐費補助",
+          receipt.metadata?.category ?? "餐費補助",
           departmentsById.get(receipt.department_id ?? "")?.name ?? "-",
           receipt.metadata?.applicant_name ?? profilesById.get(receipt.submitted_by)?.display_name ?? "-",
           claims.map((claim) => profilesById.get(claim.profile_id)?.display_name ?? "-").join("、"),

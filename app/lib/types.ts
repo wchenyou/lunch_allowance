@@ -27,6 +27,7 @@ export type Receipt = {
   receipt_no: string;
   note: string;
   reimbursement_status: ReimbursementStatus;
+  category?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -70,6 +71,7 @@ export type ReceiptInput = {
   receipt_no?: string;
   note?: string;
   reimbursement_status?: ReimbursementStatus;
+  category?: string | null;
   allocations: Array<{ employee_id: string; amount: number; note?: string }>;
 };
 

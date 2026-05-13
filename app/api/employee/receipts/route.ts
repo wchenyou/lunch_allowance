@@ -95,6 +95,7 @@ export async function POST(request: Request) {
       total_amount: totalAmount,
       receipt_no: input.receipt_no ?? "",
       note: input.note ?? "",
+      category: input.category ?? "餐費補助",
       reimbursement_status: "pending",
       allocations
     });
