@@ -1,4 +1,4 @@
-# 午餐補助系統 &nbsp;![version](https://img.shields.io/badge/version-1.1.0-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+# 內部報銷管理系統 &nbsp;![version](https://img.shields.io/badge/version-1.1.0-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
 > 一套輕量、開源的企業內部**餐費補助報銷管理系統**，基於 Next.js 15 + Supabase 構建。
 > 員工用手機拍照上傳單據，行政部門在後台一鍵核款——讓每日的午餐費用流程化繁為簡。
