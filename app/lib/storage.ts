@@ -1,4 +1,3 @@
-import { google } from "googleapis";
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -12,24 +11,6 @@ const LOCAL_DB_PATH = path.join(process.env.VERCEL ? "/tmp/lunch_allowance" : pa
 const LEGACY_LOCAL_DB_PATH = path.join("/tmp/lunch-subsidy-admin", "local-db.json");
 const now = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${randomUUID().slice(0, 8)}${Date.now().toString(36)}`;
-
-const SHEETS = {
-  Employees: ["employee_id", "name", "active", "note", "created_at", "updated_at"],
-  Receipts: [
-    "receipt_id",
-    "date",
-    "payer_employee_id",
-    "merchant",
-    "total_amount",
-    "receipt_no",
-    "note",
-    "reimbursement_status",
-    "created_at",
-    "updated_at"
-  ],
-  Allocations: ["allocation_id", "receipt_id", "date", "employee_id", "amount", "note", "created_at", "updated_at"],
-  Settlements: ["settlement_id", "period_start", "period_end", "payer_employee_id", "claimed_amount", "generated_at", "status"]
-} as const;
 
 const seededEmployees = (): Employee[] => {
   const names = (process.env.SEED_EMPLOYEES || "Aaron")
@@ -48,9 +29,6 @@ const seededEmployees = (): Employee[] => {
 };
 
 const emptyDb = (): Database => ({ employees: seededEmployees(), receipts: [], allocations: [], attachments: [] });
-
-const hasGoogleConfig = () =>
-  Boolean(process.env.GOOGLE_SHEETS_SPREADSHEET_ID && process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY);
 
 export const hasSupabaseConfig = () => Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 
@@ -315,158 +293,13 @@ async function writeLocal(db: Database) {
   await fs.writeFile(LOCAL_DB_PATH, `${JSON.stringify(db, null, 2)}\n`, "utf8");
 }
 
-async function sheetsClient() {
-  const auth = new google.auth.JWT({
-    email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-  });
-  return google.sheets({ version: "v4", auth });
-}
-
-async function ensureSheetHeaders() {
-  const sheets = await sheetsClient();
-  const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID!;
-  const meta = await sheets.spreadsheets.get({ spreadsheetId });
-  const existing = new Set(meta.data.sheets?.map((sheet) => sheet.properties?.title).filter(Boolean));
-  const requests = Object.keys(SHEETS)
-    .filter((title) => !existing.has(title))
-    .map((title) => ({ addSheet: { properties: { title } } }));
-
-  if (requests.length) {
-    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } });
-  }
-
-  for (const [title, headers] of Object.entries(SHEETS)) {
-    const result = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${title}!1:1` });
-    if (!result.data.values?.[0]?.length) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `${title}!A1`,
-        valueInputOption: "RAW",
-        requestBody: { values: [[...headers]] }
-      });
-    }
-  }
-}
-
-const rowObjects = <T>(headers: readonly string[], rows: string[][] | undefined, mapper: (row: Record<string, string>) => T): T[] =>
-  (rows ?? []).slice(1).map((values) => {
-    const row: Record<string, string> = {};
-    headers.forEach((header, index) => {
-      row[header] = values[index] ?? "";
-    });
-    return mapper(row);
-  });
-
-async function readGoogle(): Promise<Database> {
-  await ensureSheetHeaders();
-  const sheets = await sheetsClient();
-  const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID!;
-  const result = await sheets.spreadsheets.values.batchGet({
-    spreadsheetId,
-    ranges: ["Employees!A:F", "Receipts!A:J", "Allocations!A:H"]
-  });
-  const [employeesRows, receiptsRows, allocationsRows] = result.data.valueRanges?.map((range) => range.values as string[][] | undefined) ?? [];
-
-  const db: Database = {
-    employees: rowObjects(SHEETS.Employees, employeesRows, (row) => ({
-      employee_id: row.employee_id,
-      name: row.name,
-      active: row.active !== "false",
-      note: row.note,
-      created_at: row.created_at,
-      updated_at: row.updated_at
-    })).filter((employee) => employee.employee_id),
-    receipts: rowObjects(SHEETS.Receipts, receiptsRows, (row) => ({
-      receipt_id: row.receipt_id,
-      date: row.date,
-      payer_employee_id: row.payer_employee_id,
-      merchant: row.merchant,
-      total_amount: Number(row.total_amount || 0),
-      receipt_no: row.receipt_no,
-      note: row.note,
-      reimbursement_status: normalizeStatus(row.reimbursement_status),
-      created_at: row.created_at,
-      updated_at: row.updated_at
-    })).filter((receipt) => receipt.receipt_id),
-    allocations: rowObjects(SHEETS.Allocations, allocationsRows, (row) => ({
-      allocation_id: row.allocation_id,
-      receipt_id: row.receipt_id,
-      date: row.date,
-      employee_id: row.employee_id,
-      amount: Number(row.amount || 0),
-      note: row.note,
-      created_at: row.created_at,
-      updated_at: row.updated_at
-    })).filter((allocation) => allocation.allocation_id)
-  };
-
-  if (!db.employees.length) {
-    db.employees = seededEmployees();
-    await writeGoogle(db);
-  }
-
-  return db;
-}
-
-async function writeGoogle(db: Database) {
-  await ensureSheetHeaders();
-  const sheets = await sheetsClient();
-  const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID!;
-  await sheets.spreadsheets.values.batchClear({
-    spreadsheetId,
-    requestBody: { ranges: ["Employees!A:F", "Receipts!A:J", "Allocations!A:H"] }
-  });
-  await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      valueInputOption: "RAW",
-      data: [
-        {
-          range: "Employees!A:F",
-          values: [
-            [...SHEETS.Employees],
-            ...db.employees.map((e) => [e.employee_id, e.name, String(e.active), e.note, e.created_at, e.updated_at])
-          ]
-        },
-        {
-          range: "Receipts!A:J",
-          values: [
-            [...SHEETS.Receipts],
-            ...db.receipts.map((r) => [
-              r.receipt_id,
-              r.date,
-              r.payer_employee_id,
-              r.merchant,
-              r.total_amount,
-              r.receipt_no,
-              r.note,
-              r.reimbursement_status,
-              r.created_at,
-              r.updated_at
-            ])
-          ]
-        },
-        {
-          range: "Allocations!A:H",
-          values: [
-            [...SHEETS.Allocations],
-            ...db.allocations.map((a) => [a.allocation_id, a.receipt_id, a.date, a.employee_id, a.amount, a.note, a.created_at, a.updated_at])
-          ]
-        }
-      ]
-    }
-  });
-}
-
 export async function readDb(): Promise<Database> {
   if (hasSupabaseConfig()) return readSupabase();
-  return hasGoogleConfig() ? readGoogle() : readLocal();
+  return readLocal();
 }
 
 export async function writeDb(db: Database) {
-  return hasGoogleConfig() ? writeGoogle(db) : writeLocal(db);
+  return writeLocal(db);
 }
 
 export async function upsertEmployee(input: EmployeeInput) {

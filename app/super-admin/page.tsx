@@ -123,13 +123,14 @@ export default function SuperAdminPage() {
   }
 
   async function deleteDepartment(id: string) {
+    if (!confirm("確定要刪除此部門嗎？若有關聯資料將無法刪除。")) return;
     const response = await fetch("/api/super-admin/departments", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id })
     });
     const body = await response.json();
-    setMessage(response.ok ? "部門已停用" : body.error || "部門停用失敗");
+    setMessage(response.ok ? "部門已刪除" : body.error || "部門刪除失敗");
     if (response.ok) await refresh();
   }
 
@@ -157,13 +158,14 @@ export default function SuperAdminPage() {
   }
 
   async function deleteAccount(id: string) {
+    if (!confirm("確定要刪除此帳號嗎？若有關聯收據紀錄將無法刪除。")) return;
     const response = await fetch("/api/super-admin/accounts", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id })
     });
     const body = await response.json();
-    setMessage(response.ok ? "帳號已停用" : body.error || "帳號停用失敗");
+    setMessage(response.ok ? "帳號已刪除" : body.error || "帳號刪除失敗");
     if (response.ok) await refresh();
   }
 

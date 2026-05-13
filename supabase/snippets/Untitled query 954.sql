@@ -1,0 +1,1 @@
+DELETE FROM receipt_claims WHERE profile_id = '10000000-0000-4000-8000-000000000103' AND claim_date = '2026-05-12' AND (claimed_amount = 100 OR subsidy_amount = 5); DELETE FROM receipts WHERE submitted_by = '10000000-0000-4000-8000-000000000103' AND receipt_date = '2026-05-12' AND total_amount = 100;

@@ -114,21 +114,39 @@ export async function DELETE(request: Request) {
   const input = await request.json();
   const id = String(input.id ?? "").trim();
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
-  if (id === guard.session?.profileId) return NextResponse.json({ error: "不可停用目前登入帳號" }, { status: 400 });
+  if (id === guard.session?.profileId) return NextResponse.json({ error: "不可刪除目前登入帳號" }, { status: 400 });
 
   const supabase = createSupabaseAdminClient();
   const { data: profile, error: profileError } = await supabase.from("profiles").select("id, app_role").eq("id", id).single();
   if (profileError) return supabaseErrorResponse("讀取帳號資料", profileError, 404);
   if (!profile) return NextResponse.json({ error: "找不到帳號" }, { status: 404 });
-  if (profile.app_role === "super_admin") return NextResponse.json({ error: "最高管理帳號不可透過刪除按鈕停用" }, { status: 400 });
-  const timestamp = new Date().toISOString();
-  const { error } = await supabase
-    .from("profiles")
-    .update({ active: false, login_disabled_at: timestamp })
-    .eq("id", id)
-    .neq("app_role", "super_admin");
-  if (error) return supabaseErrorResponse("停用帳號", error);
-  await supabase.from("department_admin_departments").delete().eq("admin_profile_id", id);
-  await supabase.from("department_admin_employees").delete().eq("admin_profile_id", id);
+  if (profile.app_role === "super_admin") return NextResponse.json({ error: "最高管理帳號不可透過此按鈕刪除，請先修改其角色" }, { status: 400 });
+
+  // Plan A: check for related data before hard deleting
+  const [submittedResult, claimsResult] = await Promise.all([
+    supabase.from("receipts").select("id", { count: "exact", head: true }).eq("submitted_by", id),
+    supabase.from("receipt_claims").select("id", { count: "exact", head: true }).eq("profile_id", id)
+  ]);
+  const submittedCount = submittedResult.count ?? 0;
+  const claimsCount = claimsResult.count ?? 0;
+
+  if (submittedCount > 0 || claimsCount > 0) {
+    const parts: string[] = [];
+    if (submittedCount > 0) parts.push(`${submittedCount} 筆提交的收據`);
+    if (claimsCount > 0) parts.push(`${claimsCount} 筆請款紀錄`);
+    return NextResponse.json(
+      { error: `無法刪除：此帳號仍有 ${parts.join(" 及 ")}，請先處理相關資料` },
+      { status: 409 }
+    );
+  }
+
+  // Clean up scopes first, then hard delete
+  await Promise.all([
+    supabase.from("department_admin_departments").delete().eq("admin_profile_id", id),
+    supabase.from("department_admin_employees").delete().eq("admin_profile_id", id),
+    supabase.from("profile_credentials").delete().eq("profile_id", id)
+  ]);
+  const { error } = await supabase.from("profiles").delete().eq("id", id);
+  if (error) return supabaseErrorResponse("刪除帳號", error);
   return NextResponse.json({ ok: true });
 }
