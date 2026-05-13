@@ -65,7 +65,9 @@ export async function GET(request: Request) {
     })
   ];
   const csv = lines.map((line) => line.map(csvEscape).join(",")).join("\n");
-  return new Response(csv, {
+  const bom = "\uFEFF";
+  const csvWithBom = bom + csv;
+  return new Response(csvWithBom, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="lunch-reimbursements-${start || "all"}-${end || "all"}.csv"`

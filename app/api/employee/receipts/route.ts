@@ -100,7 +100,7 @@ export async function POST(request: Request) {
       allocations
     });
     const receipt = db.receipts.find((item) => item.date === date && item.payer_employee_id === profileId && item.total_amount === totalAmount) ?? db.receipts[0];
-    return NextResponse.json({ ...db, receipt });
+    return NextResponse.json({ receipt });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to submit receipt" }, { status: 500 });
   }

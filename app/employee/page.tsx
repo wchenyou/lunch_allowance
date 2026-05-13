@@ -34,6 +34,7 @@ export default function EmployeeReceiptPage() {
   const [claimInputs, setClaimInputs] = useState<ClaimInput[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ next_password: "", confirm_password: "" });
   
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -101,11 +102,13 @@ export default function EmployeeReceiptPage() {
   async function submitReceipt(event: FormEvent) {
     event.preventDefault();
     if (!employee) return;
+    if (isSubmitting) return;
     if (!imageFile) {
       setMessage("請先拍照或選擇單據照片");
       return;
     }
     setMessage("");
+    setIsSubmitting(true);
     const totalAmount = Number(form.total_amount);
     
     let validClaims;
@@ -138,6 +141,7 @@ export default function EmployeeReceiptPage() {
     const body = await response.json();
     if (!response.ok) {
       setMessage(body.error || "送出失敗");
+      setIsSubmitting(false);
       return;
     }
 
@@ -151,6 +155,7 @@ export default function EmployeeReceiptPage() {
     setIsMultiClaim(false);
     setClaimInputs([{ employee_id: employee.employee_id, amount: "" }]);
     setUploadModalOpen(false);
+    setIsSubmitting(false);
     await refresh();
   }
 
@@ -458,9 +463,9 @@ export default function EmployeeReceiptPage() {
                 <button type="button" className="ghost-btn" onClick={() => setUploadModalOpen(false)}>
                   取消
                 </button>
-                <button className="primary-btn" type="submit">
+                <button className="primary-btn" type="submit" disabled={isSubmitting}>
                   <ReceiptText size={17} />
-                  送出單據
+                  {isSubmitting ? "送出中..." : "送出單據"}
                 </button>
               </div>
             </form>
