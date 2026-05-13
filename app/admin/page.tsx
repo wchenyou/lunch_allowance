@@ -516,7 +516,7 @@ function DataTable({ headers, rows, empty }: { headers: string[]; rows: Array<Ar
     <div className="table-wrap">
       <table>
         <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
-        <tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td className={cellIndex === 7 ? "wrap-cell" : undefined} key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
+        <tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td className={headers[cellIndex] === "請款人" || headers[cellIndex] === "申請人" ? "wrap-cell" : undefined} key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
       </table>
     </div>
   );

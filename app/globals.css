@@ -567,7 +567,7 @@ td {
 }
 
 .modal-card.wide {
-  width: min(760px, 100%);
+  width: min(1100px, 98vw);
 }
 
 .modal-header {
