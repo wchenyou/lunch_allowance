@@ -194,7 +194,7 @@ export default function DepartmentAdminPage() {
           <div className="brand-mark">行</div>
           <div>
             <strong>{session?.role === "super_admin" ? "最高管理權限" : "部門行政管理"}</strong>
-            <span>{session?.displayName || session?.account || "載入中..."}</span>
+            <span>{session ? (session.displayName + (session.account && session.account !== session.displayName ? ` (${session.account})` : "")) : "載入中..."}</span>
           </div>
         </div>
         <nav>

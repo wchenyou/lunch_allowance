@@ -344,7 +344,7 @@ export default function SuperAdminPage() {
           <div className="brand-mark">權</div>
           <div>
             <strong>最高管理後台</strong>
-            <span>{session ? (session.displayName || session.account) : "載入中..."}</span>
+            <span>{session ? (session.displayName + (session.account && session.account !== session.displayName ? ` (${session.account})` : "")) : "載入中..."}</span>
           </div>
         </div>
         <nav>
