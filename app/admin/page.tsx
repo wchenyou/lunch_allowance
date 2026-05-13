@@ -23,6 +23,7 @@ type ReceiptRow = {
   subsidy_amount: number;
   reimbursed_amount: number;
   status: string;
+  created_at: string;
   metadata?: { applicant_name?: string; claimant_names?: string[]; category?: string };
 };
 type Permission = { department_id: string; employee_profile_id: string; claimant_profile_id: string };
@@ -408,8 +409,8 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
   isStats?: boolean;
 }) {
   const headers = isStats 
-    ? ["編號", "日期", "項目", "部門", "請款人", "請款人數", "單據總金額", "可請款金額", "照片名稱", ""]
-    : ["編號", "日期", "項目", "部門", "申請人", "請款人", "請款人數", "單據總金額", "可請款金額", "狀態", "照片", ""];
+    ? ["申請日期", "編號", "補助日期", "項目", "部門", "請款人", "請款人數", "單據總金額", "可請款金額", "照片名稱", ""]
+    : ["申請日期", "編號", "補助日期", "項目", "部門", "申請人", "請款人", "請款人數", "單據總金額", "可請款金額", "狀態", "照片", ""];
 
   return (
     <DataTable
@@ -420,6 +421,7 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
         
         if (isStats) {
           return [
+            receipt.created_at.slice(0, 10),
             index + 1,
             receipt.receipt_date,
             receipt.metadata?.category ?? "餐費補助",
@@ -434,6 +436,7 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
         }
 
         return [
+          receipt.created_at.slice(0, 10),
           index + 1,
           receipt.receipt_date,
           receipt.metadata?.category ?? "餐費補助",
