@@ -1002,6 +1002,10 @@ td {
     grid-template-columns: 1fr;
   }
 
+  .modal-backdrop {
+    padding: 12px;
+  }
+
   .topbar,
   .section-row,
   .form-actions {

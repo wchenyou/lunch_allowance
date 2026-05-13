@@ -17,7 +17,8 @@ type ProfilePayload = {
   app_role: (typeof appRoles)[number];
   active: boolean;
   login_disabled_at: string | null;
-  onboarded_at: string;
+  onboarded_at?: string;
+  updated_at: string;
   password_hash?: string;
   password_updated_at?: string;
 };
@@ -69,8 +70,11 @@ export async function POST(request: Request) {
     app_role: appRole,
     active: input.active ?? true,
     login_disabled_at: input.active === false ? new Date().toISOString() : null,
-    onboarded_at: new Date().toISOString()
+    updated_at: new Date().toISOString()
   };
+  if (!id) {
+    payload.onboarded_at = new Date().toISOString();
+  }
   if (passwordHash) {
     payload.password_hash = passwordHash;
     payload.password_updated_at = new Date().toISOString();
@@ -99,7 +103,7 @@ export async function POST(request: Request) {
   if (appRole === "department_admin" && departmentIds.length) {
     const { error: scopeError } = await supabase
       .from("department_admin_departments")
-      .upsert(departmentIds.map((departmentId) => ({ admin_profile_id: data.id, department_id: departmentId, created_by: guard.session?.profileId ?? null })), {
+      .upsert(departmentIds.map((departmentId) => ({ admin_profile_id: data.id, department_id: departmentId })), {
         onConflict: "admin_profile_id,department_id",
         ignoreDuplicates: true
       });

@@ -121,6 +121,7 @@ export default function EmployeeReceiptPage() {
         .filter((claim) => claim.employee_id && Number.isFinite(claim.amount) && claim.amount > 0);
       if (!validClaims.some((claim) => claim.employee_id === employee.employee_id)) {
         setMessage("請款人必須包含申請人自己");
+        setIsSubmitting(false);
         return;
       }
     } else {
@@ -385,7 +386,7 @@ export default function EmployeeReceiptPage() {
 
       {uploadModalOpen ? (
         <div className="modal-backdrop" role="presentation" onPointerDown={(e) => { if (e.target === e.currentTarget) setUploadModalOpen(false); }}>
-          <div className="modal-card wide" role="dialog" aria-modal="true" style={{ maxHeight: "90vh", overflowY: "auto" }}>
+          <div className="modal-card" role="dialog" aria-modal="true" style={{ maxHeight: "90vh", overflowY: "auto" }}>
             <div className="modal-header">
               <div className="panel-title inline-title">
                 <Camera size={17} />
