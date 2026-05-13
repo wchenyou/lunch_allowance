@@ -604,6 +604,12 @@ td {
   color: var(--accent);
 }
 
+.badge-lg {
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 590;
+}
+
 .modal-actions {
   display: flex;
   align-items: center;

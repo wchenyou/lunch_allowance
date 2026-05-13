@@ -324,8 +324,9 @@ export default function DepartmentAdminPage() {
                 <WalletCards size={17} />
                 <h2>{activeEmployee.display_name} 請款管理</h2>
                 <div className="modal-summary-badges">
-                  <span className="badge">總額: {money(activeEmployeeReceipts.reduce((sum, r) => sum + Number(r.total_amount || 0), 0))}</span>
-                  <span className="badge primary">可請款: {money(activeEmployeeReceipts.reduce((sum, r) => {
+                  <span className="badge">請款筆數: {activeEmployeeReceipts.filter(r => r.status === "submitted").length} 筆</span>
+                  <span className="badge">總收據金額: {money(activeEmployeeReceipts.reduce((sum, r) => sum + Number(r.total_amount || 0), 0))}</span>
+                  <span className="badge primary badge-lg">可請款總額: {money(activeEmployeeReceipts.reduce((sum, r) => {
                     const claims = claimsByReceipt.get(r.id) ?? [];
                     return sum + claims.reduce((cSum, c) => cSum + Number(c.subsidy_amount || 0), 0);
                   }, 0))}</span>
@@ -341,7 +342,7 @@ export default function DepartmentAdminPage() {
                       }
                     }}
                   >
-                    請款
+                    全部請款
                   </button>
                 ) : null}
                 <button className="icon-btn" title="關閉" onClick={() => setActiveEmployeeId("")}><X size={15} /></button>
