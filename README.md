@@ -1,4 +1,4 @@
-# Lunch Allowance (午餐補助系統)
+# Lunch Allowance (午餐補助系統) &nbsp;![version](https://img.shields.io/badge/version-1.0.0-blue)
 
 這是一個基於 Next.js 與 Supabase 構建的午餐補助管理系統。旨在簡化公司每日午餐費用的登記、分攤、審核與結算流程。
 
@@ -79,3 +79,19 @@ DAILY_SUBSIDY_LIMIT=150
 ## 📄 開源協議
 
 本專案採用 [MIT License](LICENSE) 開源協議。
+
+---
+
+## 📝 Changelog
+
+### v1.0.0 (2026-05-13)
+首次正式開源發布。
+- 移除 Google Sheets 整合，系統以 Supabase 為唯一資料來源
+- 移除 `googleapis` 依賴
+- 部門刪除改為方案 A：無關聯資料則直接從 DB 移除，有關聯資料則回傳明確錯誤
+- 帳號刪除改為方案 A：無收據/請款紀錄則直接從 DB 移除，有資料則提示先處理
+- 刪除操作前加入 `confirm()` 確認彈窗
+- 修正 Admin 後台側邊欄動態顯示登入帳號名稱
+- 修正登入 Session 帳號 fallback 邏輯
+- 最高管理後台側邊欄顯示登入者姓名與帳號
+- 員工請款管理彈窗加入請款筆數與收據金額統計，並過濾僅顯示「申請中」狀態
