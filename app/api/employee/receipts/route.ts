@@ -11,14 +11,19 @@ export async function POST(request: Request) {
   const date = String(input.date ?? "").trim();
   const totalAmount = Number(input.total_amount);
   const allocations = Array.isArray(input.allocations)
-    ? input.allocations
-    : [{ employee_id: profileId, amount: totalAmount, note: input.note ?? "" }];
+    ? input.allocations.map((a: any) => ({ ...a, amount: Math.round(Number(a.amount) * 100) / 100 }))
+    : [{ employee_id: profileId, amount: Math.round(totalAmount * 100) / 100, note: input.note ?? "" }];
 
   if (!profileId || !date || !Number.isFinite(totalAmount) || totalAmount <= 0) {
     return NextResponse.json({ error: "profile_id, date, and total_amount are required" }, { status: 400 });
   }
   if (guard.session!.role === "employee" && profileId !== guard.session!.profileId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const totalClaimed = allocations.reduce((sum: number, a: any) => sum + Number(a.amount), 0);
+  if (totalClaimed > totalAmount) {
+    return NextResponse.json({ error: "請款總額不能超過收據總額" }, { status: 400 });
   }
 
   const invalidAllocation = allocations.some((allocation: any) => !allocation.employee_id || Number(allocation.amount) <= 0);

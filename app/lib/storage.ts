@@ -198,6 +198,9 @@ async function upsertReceiptSupabase(input: ReceiptInput, receiptId?: string) {
   const status = normalizeStatus(input.reimbursement_status);
   const createdAt = now();
   const subsidies = await calculateSubsidiesForReceipt(supabase, input, receiptId, createdAt);
+  const totalClaimed = input.allocations.reduce((sum, a) => sum + Number(a.amount), 0);
+  const totalSubsidy = subsidies.reduce((sum, s) => sum + s, 0);
+
   const receiptPayload = {
     receipt_date: input.date,
     department_id: submitter.department_id,
@@ -205,7 +208,9 @@ async function upsertReceiptSupabase(input: ReceiptInput, receiptId?: string) {
     payer_profile_id: input.payer_employee_id,
     merchant: input.merchant ?? null,
     receipt_no: input.receipt_no ?? null,
-    total_amount: Number(input.total_amount),
+    total_amount: Math.round(Number(input.total_amount) * 100) / 100,
+    claimed_amount: Math.round(totalClaimed * 100) / 100,
+    subsidy_amount: Math.round(totalSubsidy * 100) / 100,
     status: status === "paid" ? "settled" : status === "rejected" ? "rejected" : "submitted",
     note: input.note ?? null,
     metadata: {
@@ -229,9 +234,9 @@ async function upsertReceiptSupabase(input: ReceiptInput, receiptId?: string) {
     receipt_id: nextReceiptId,
     profile_id: allocation.employee_id,
     claim_date: input.date,
-    claimed_amount: Number(allocation.amount),
-    subsidy_amount: subsidies[index] ?? 0,
-    reimbursed_amount: status === "paid" ? subsidies[index] ?? 0 : 0,
+    claimed_amount: Math.round(Number(allocation.amount) * 100) / 100,
+    subsidy_amount: Math.round((subsidies[index] ?? 0) * 100) / 100,
+    reimbursed_amount: status === "paid" ? Math.round((subsidies[index] ?? 0) * 100) / 100 : 0,
     note: allocation.note ?? null,
     status: status === "paid" ? "reimbursed" : status === "rejected" ? "rejected" : "claimed"
   }));
