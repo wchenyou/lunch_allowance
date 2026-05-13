@@ -14,7 +14,7 @@ const safeExtension = (contentType: string) => {
 };
 
 export async function POST(request: Request) {
-  const guard = await requireSession(["employee"]);
+  const guard = await requireSession(["employee", "department_admin", "super_admin"]);
   if (guard.response) return guard.response;
   if (!hasSupabaseConfig()) {
     return NextResponse.json({ error: "Supabase storage is not configured" }, { status: 501 });
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   const profileId = String(input.profile_id ?? "").trim();
   const receiptId = String(input.receipt_id ?? "pending").trim();
   const contentType = String(input.content_type ?? "image/jpeg").trim();
-  const fileName = String(input.file_name ?? `${randomUUID()}.${safeExtension(contentType)}`).replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const fileName = String(input.file_name ?? `${randomUUID()}.${safeExtension(contentType)}`).replace(/[^a-zA-Z0-9\u4e00-\u9fff_.-]/g, "_");
 
   if (!profileId) {
     return NextResponse.json({ error: "profile_id is required" }, { status: 400 });

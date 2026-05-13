@@ -4,7 +4,7 @@ import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 import { upsertReceipt } from "@/app/lib/storage";
 
 export async function POST(request: Request) {
-  const guard = await requireSession(["employee"]);
+  const guard = await requireSession(["employee", "department_admin", "super_admin"]);
   if (guard.response) return guard.response;
   const input = await request.json();
   const profileId = String(input.profile_id ?? input.payer_employee_id ?? "").trim();

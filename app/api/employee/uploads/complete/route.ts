@@ -4,7 +4,7 @@ import { RECEIPT_IMAGE_BUCKET } from "@/app/lib/domain";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 
 export async function POST(request: Request) {
-  const guard = await requireSession(["employee"]);
+  const guard = await requireSession(["employee", "department_admin", "super_admin"]);
   if (guard.response) return guard.response;
   const input = await request.json();
   const receiptId = String(input.receipt_id ?? "").trim();
