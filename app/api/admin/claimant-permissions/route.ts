@@ -13,11 +13,14 @@ export async function POST(request: Request) {
   const supabase = createSupabaseAdminClient();
   const { data: employee, error: employeeError } = await supabase
     .from("profiles")
-    .select("id, department_id")
+    .select("id, department_id, app_role")
     .eq("id", employeeProfileId)
     .single();
   if (employeeError || !employee?.department_id) {
     return NextResponse.json({ error: employeeError?.message ?? "找不到員工部門" }, { status: 404 });
+  }
+  if (employee.app_role !== "employee") {
+    return NextResponse.json({ error: "只能維護員工的合單名單" }, { status: 400 });
   }
   if (!guard.session!.departmentIds.includes(employee.department_id)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -26,11 +29,14 @@ export async function POST(request: Request) {
   if (claimantIds.length) {
     const { data: claimants, error: claimantError } = await supabase
       .from("profiles")
-      .select("id, department_id")
+      .select("id, department_id, app_role")
       .in("id", claimantIds);
     if (claimantError) return NextResponse.json({ error: claimantError.message }, { status: 400 });
     if ((claimants ?? []).some((claimant) => claimant.department_id !== employee.department_id)) {
       return NextResponse.json({ error: "合單名單只能包含同部門員工" }, { status: 400 });
+    }
+    if ((claimants ?? []).some((claimant) => claimant.app_role !== "employee")) {
+      return NextResponse.json({ error: "合單名單只能包含員工帳號" }, { status: 400 });
     }
   }
 

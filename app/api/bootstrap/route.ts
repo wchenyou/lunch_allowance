@@ -128,36 +128,40 @@ export async function GET() {
         created_at: p.created_at, updated_at: p.updated_at
       }));
       allowedDepartments = allDepts ?? [];
-    } else {
-      // Find which admins manage this employee's department, then get all their managed depts
-      const myDeptId = currentEmployee.department_id;
-      const targetDeptIds = new Set<string>(myDeptId ? [myDeptId] : []);
-
-      const { data: myDeptAdmins } = myDeptId
-        ? await supabase.from("department_admin_departments").select("admin_profile_id").eq("department_id", myDeptId)
-        : { data: [] };
-
-      const adminIds = new Set([...(myDeptAdmins ?? []).map((s: any) => s.admin_profile_id), currentProfileId]);
-      const { data: allManagedScopes } = await supabase
-        .from("department_admin_departments")
-        .select("department_id")
-        .in("admin_profile_id", Array.from(adminIds));
-
-      for (const scope of allManagedScopes ?? []) {
-        if (scope.department_id) targetDeptIds.add(scope.department_id);
-      }
-
-      const targetIdsArray = Array.from(targetDeptIds);
+    } else if (guard.session!.role === "employee") {
+      const { data: permittedRows } = await supabase
+        .from("claimant_permissions")
+        .select("claimant_profile_id")
+        .eq("employee_profile_id", currentProfileId);
+      const claimantIds = [...new Set([currentProfileId, ...(permittedRows ?? []).map((row: any) => row.claimant_profile_id)])];
       const [{ data: targetProfiles }, { data: targetDepts }] = await Promise.all([
-        targetIdsArray.length
+        claimantIds.length
           ? supabase.from("profiles").select("*, departments!profiles_department_id_fkey(name)")
-              .in("department_id", targetIdsArray).eq("active", true).order("display_name", { ascending: true })
+              .in("id", claimantIds).eq("active", true).eq("app_role", "employee").order("display_name", { ascending: true })
           : Promise.resolve({ data: [] }),
-        targetIdsArray.length
-          ? supabase.from("departments").select("*").in("id", targetIdsArray).eq("active", true)
+        currentEmployee.department_id
+          ? supabase.from("departments").select("*").eq("id", currentEmployee.department_id).eq("active", true)
           : Promise.resolve({ data: [] })
       ]);
 
+      allowedClaimants = (targetProfiles ?? []).map((p: any) => ({
+        employee_id: p.id, name: p.display_name, active: p.active,
+        department_id: p.department_id, department_name: p.departments?.name ?? null,
+        note: [p.employee_no, p.email].filter(Boolean).join(" / "),
+        created_at: p.created_at, updated_at: p.updated_at
+      }));
+      allowedDepartments = targetDepts ?? [];
+    } else {
+      const targetDeptIds = guard.session!.departmentIds;
+      const [{ data: targetProfiles }, { data: targetDepts }] = await Promise.all([
+        targetDeptIds.length
+          ? supabase.from("profiles").select("*, departments!profiles_department_id_fkey(name)")
+              .in("department_id", targetDeptIds).eq("active", true).eq("app_role", "employee").order("display_name", { ascending: true })
+          : Promise.resolve({ data: [] }),
+        targetDeptIds.length
+          ? supabase.from("departments").select("*").in("id", targetDeptIds).eq("active", true)
+          : Promise.resolve({ data: [] })
+      ]);
       allowedClaimants = (targetProfiles ?? []).map((p: any) => ({
         employee_id: p.id, name: p.display_name, active: p.active,
         department_id: p.department_id, department_name: p.departments?.name ?? null,

@@ -34,44 +34,35 @@ export async function POST(request: Request) {
   if (!allocationIds.includes(profileId)) allocationIds.unshift(profileId);
   try {
     const supabase = createSupabaseAdminClient();
-    const [myProfile, existingClaimsResult] = await Promise.all([
-      supabase.from("profiles").select("department_id").eq("id", guard.session!.profileId).single(),
+    const [submitterProfile, existingClaimsResult] = await Promise.all([
+      supabase.from("profiles").select("department_id").eq("id", profileId).single(),
       supabase
         .from("receipt_claims")
         .select("receipt_id, profile_id")
         .in("profile_id", allocationIds)
         .eq("claim_date", date)
     ]);
-    if (myProfile.error) throw myProfile.error;
+    if (submitterProfile.error) throw submitterProfile.error;
     if (existingClaimsResult.error) throw existingClaimsResult.error;
-    const myDeptId = myProfile.data?.department_id;
 
-    const { data: myDeptAdmins } = await supabase
-      .from("department_admin_departments")
-      .select("admin_profile_id")
-      .eq("department_id", myDeptId);
-    
-    const adminIds = new Set((myDeptAdmins ?? []).map(s => s.admin_profile_id));
-    adminIds.add(guard.session!.profileId);
-    
-    const { data: allManagedScopes } = await supabase
-      .from("department_admin_departments")
-      .select("department_id")
-      .in("admin_profile_id", Array.from(adminIds));
-    
-    const targetDeptIds = new Set<string>();
-    if (myDeptId) targetDeptIds.add(myDeptId); 
-    
-    if (allManagedScopes) {
-      for (const scope of allManagedScopes) {
-        if (scope.department_id) targetDeptIds.add(scope.department_id);
+    if (guard.session!.role === "department_admin") {
+      const submitterDeptId = submitterProfile.data?.department_id;
+      if (!submitterDeptId || !guard.session!.departmentIds.includes(submitterDeptId)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
     }
 
-    const { data: validProfiles } = targetDeptIds.size
-      ? await supabase.from("profiles").select("id").in("department_id", Array.from(targetDeptIds))
-      : { data: [] };
-    const allowedIds = new Set([guard.session!.profileId, ...(validProfiles ?? []).map(p => p.id)]);
+    const requestedClaimantIds = allocationIds.filter((id) => id !== profileId);
+    const { data: allowedRows, error: allowedError } = requestedClaimantIds.length
+      ? await supabase
+          .from("claimant_permissions")
+          .select("claimant_profile_id")
+          .eq("employee_profile_id", profileId)
+          .in("claimant_profile_id", requestedClaimantIds)
+      : { data: [], error: null };
+    if (allowedError) throw allowedError;
+
+    const allowedIds = new Set([profileId, ...(allowedRows ?? []).map((row) => row.claimant_profile_id)]);
 
     if (allocationIds.some((id) => !allowedIds.has(id))) {
       return NextResponse.json({ error: "只能選擇行政維護允許的請款人" }, { status: 403 });
@@ -120,10 +111,12 @@ export async function POST(request: Request) {
       db.receipts.find((item) => item.date === date && item.payer_employee_id === profileId && item.total_amount === totalAmount) ??
       db.receipts[0];
     const receiptAllocations = receipt
-      ? db.allocations.filter((allocation) => allocation.receipt_id === receipt.receipt_id)
+      ? db.allocations.filter((allocation: any) => allocation.receipt_id === receipt.receipt_id)
       : [];
     return NextResponse.json({ receipt, allocations: receiptAllocations });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to submit receipt" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Failed to submit receipt";
+    const status = message.includes("最多只能送出兩張") || message.includes("請款總額") || message.includes("Each claim") ? 400 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }

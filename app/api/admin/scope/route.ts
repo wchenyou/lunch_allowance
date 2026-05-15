@@ -35,9 +35,10 @@ export async function GET(request: Request) {
 
   const departmentQuery = supabase.from("departments").select("*").order("name", { ascending: true });
   const profileQuery = supabase.from("profiles").select("*").order("display_name", { ascending: true });
+  const receiptSelect: string = employee ? "*, filter_claims:receipt_claims!inner(profile_id)" : "*";
   let receiptQuery = supabase
     .from("receipts")
-    .select("*")
+    .select(receiptSelect)
     .order("receipt_date", { ascending: false })
     .order("created_at", { ascending: false });
 
@@ -47,16 +48,7 @@ export async function GET(request: Request) {
     receiptQuery.in("department_id", departmentIds);
   }
   if (employee) {
-    const { data: employeeClaims, error: employeeClaimsError } = await supabase
-      .from("receipt_claims")
-      .select("receipt_id")
-      .eq("profile_id", employee)
-      .limit(2000);
-    if (employeeClaimsError) return NextResponse.json({ error: employeeClaimsError.message }, { status: 500 });
-    const claimReceiptIds = [...new Set((employeeClaims ?? []).map((claim) => claim.receipt_id))];
-    receiptQuery = claimReceiptIds.length
-      ? receiptQuery.or(`submitted_by.eq.${employee},id.in.(${claimReceiptIds.join(",")})`)
-      : receiptQuery.eq("submitted_by", employee);
+    receiptQuery = receiptQuery.eq("filter_claims.profile_id", employee);
   }
   if (start) receiptQuery = receiptQuery.gte("receipt_date", start);
   if (end) receiptQuery = receiptQuery.lte("receipt_date", end);
@@ -83,7 +75,7 @@ export async function GET(request: Request) {
       ? supabase.rpc("admin_receipt_dashboard_summary", { scoped_department_ids: departmentIds ?? null })
       : Promise.resolve({ data: null, error: null })
   ]);
-  const allReceipts = receipts.data ?? [];
+  const allReceipts = ((receipts.data ?? []) as any[]);
   const limited = mode !== "stats" && allReceipts.length > DEFAULT_RECEIPT_LIMIT;
   let scopedReceipts = limited ? allReceipts.slice(0, DEFAULT_RECEIPT_LIMIT) : allReceipts;
   const initialReceiptIds = scopedReceipts.map((receipt) => receipt.id);

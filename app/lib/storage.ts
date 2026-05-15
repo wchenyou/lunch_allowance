@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { calculateDailyClaimSubsidies, normalizeStatus } from "./calculations";
+import { normalizeStatus } from "./calculations";
 import { createSupabaseAdminClient } from "./supabase/admin";
 import { RECEIPT_IMAGE_BUCKET } from "./domain";
 import { Allocation, Database, Employee, EmployeeInput, Receipt, ReceiptAttachment, ReceiptInput } from "./types";
@@ -106,47 +106,6 @@ async function readSupabase(): Promise<Database> {
   };
 }
 
-async function calculateSubsidiesForReceipt(
-  supabase: ReturnType<typeof createSupabaseAdminClient>,
-  input: ReceiptInput,
-  receiptId: string | undefined,
-  createdAt: string
-) {
-  const profileIds = [...new Set(input.allocations.map((allocation) => allocation.employee_id))];
-  const existingClaims = profileIds.length
-    ? await supabase
-        .from("receipt_claims")
-        .select("id, receipt_id, profile_id, claim_date, claimed_amount, created_at, receipts(status)")
-        .in("profile_id", profileIds)
-        .eq("claim_date", input.date)
-    : { data: [], error: null };
-  if (existingClaims.error) throw new Error(existingClaims.error.message);
-
-  const retainedExisting = (existingClaims.data ?? []).filter((claim: any) => {
-    const status = Array.isArray(claim.receipts) ? claim.receipts[0]?.status : claim.receipts?.status;
-    return claim.receipt_id !== receiptId && status !== "rejected" && status !== "void";
-  });
-  const newClaims = input.allocations.map((allocation, index) => ({
-    id: `new-${index}`,
-    profileId: allocation.employee_id,
-    claimDate: input.date,
-    claimedAmount: Number(allocation.amount),
-    createdAt: new Date(new Date(createdAt).getTime() + index).toISOString()
-  }));
-  const allClaims = [
-    ...retainedExisting.map((claim: any) => ({
-      id: claim.id,
-      profileId: claim.profile_id,
-      claimDate: claim.claim_date,
-      claimedAmount: Number(claim.claimed_amount),
-      createdAt: claim.created_at
-    })),
-    ...newClaims
-  ];
-  const calculated = calculateDailyClaimSubsidies(allClaims);
-  return newClaims.map((claim) => calculated.find((item) => item.id === claim.id)?.subsidyAmount ?? 0);
-}
-
 async function upsertEmployeeSupabase(input: EmployeeInput) {
   const supabase = createSupabaseAdminClient();
   if (!input.employee_id) {
@@ -163,74 +122,30 @@ async function upsertEmployeeSupabase(input: EmployeeInput) {
 
 async function upsertReceiptSupabase(input: ReceiptInput, receiptId?: string) {
   const supabase = createSupabaseAdminClient();
-  const profileIds = [...new Set([input.payer_employee_id, ...input.allocations.map((allocation) => allocation.employee_id)])];
-  const { data: profiles, error: profileError } = await supabase
-    .from("profiles")
-    .select("id, display_name, department_id")
-    .in("id", profileIds);
-  if (profileError) throw new Error(profileError.message);
-  const profilesById = new Map((profiles ?? []).map((profile: any) => [profile.id, profile]));
-  const submitter = profilesById.get(input.payer_employee_id);
-  if (!submitter) throw new Error("Applicant profile not found");
-  const claimantNames = input.allocations.map((allocation) => profilesById.get(allocation.employee_id)?.display_name ?? allocation.employee_id);
   const status = normalizeStatus(input.reimbursement_status);
-  const createdAt = now();
-  const subsidies = await calculateSubsidiesForReceipt(supabase, input, receiptId, createdAt);
-  const totalClaimed = input.allocations.reduce((sum, a) => sum + Number(a.amount), 0);
-  const totalSubsidy = subsidies.reduce((sum, s) => sum + s, 0);
-
-  const receiptPayload = {
-    receipt_date: input.date,
-    department_id: submitter.department_id,
-    submitted_by: input.payer_employee_id,
-    payer_profile_id: input.payer_employee_id,
-    merchant: input.merchant ?? null,
-    receipt_no: input.receipt_no ?? null,
-    total_amount: Math.round(Number(input.total_amount) * 100) / 100,
-    claimed_amount: Math.round(totalClaimed * 100) / 100,
-    subsidy_amount: Math.round(totalSubsidy * 100) / 100,
-    status: status === "paid" ? "settled" : status === "rejected" ? "rejected" : "submitted",
-    note: input.note ?? null,
-    metadata: {
-      applicant_name: submitter.display_name,
-      claimant_names: claimantNames,
-      claimant_ids: input.allocations.map((allocation) => allocation.employee_id),
-      category: input.category ?? "餐費補助"
-    }
-  };
-
-  const receiptResult = receiptId
-    ? await supabase.from("receipts").update(receiptPayload).eq("id", receiptId).select("id").single()
-    : await supabase.from("receipts").insert(receiptPayload).select("id").single();
-  if (receiptResult.error || !receiptResult.data) throw new Error(receiptResult.error?.message ?? "Failed to save receipt");
-
-  const nextReceiptId = receiptResult.data.id;
-  const { error: deleteError } = await supabase.from("receipt_claims").delete().eq("receipt_id", nextReceiptId);
-  if (deleteError) throw new Error(deleteError.message);
-
-  const claims = input.allocations.map((allocation, index) => ({
-    receipt_id: nextReceiptId,
-    profile_id: allocation.employee_id,
-    claim_date: input.date,
-    claimed_amount: Math.round(Number(allocation.amount) * 100) / 100,
-    subsidy_amount: Math.round((subsidies[index] ?? 0) * 100) / 100,
-    reimbursed_amount: status === "paid" ? Math.round((subsidies[index] ?? 0) * 100) / 100 : 0,
-    note: allocation.note ?? null,
-    status: status === "paid" ? "reimbursed" : status === "rejected" ? "rejected" : "claimed"
-  }));
-  const { data: savedClaims, error: claimError } = await supabase.from("receipt_claims").insert(claims).select("*");
-  if (claimError) throw new Error(claimError.message);
-
-  // Return only the newly created/updated receipt — no full-table re-read
-  const { data: savedReceipt, error: readError } = await supabase
-    .from("receipts")
-    .select("*")
-    .eq("id", nextReceiptId)
-    .single();
-  if (readError || !savedReceipt) throw new Error(readError?.message ?? "Failed to read saved receipt");
+  const { data, error } = await supabase.rpc("save_receipt_with_claims", {
+    p_receipt_id: receiptId ?? null,
+    p_receipt_date: input.date,
+    p_payer_profile_id: input.payer_employee_id,
+    p_merchant: input.merchant ?? "",
+    p_receipt_no: input.receipt_no ?? "",
+    p_total_amount: Math.round(Number(input.total_amount) * 100) / 100,
+    p_note: input.note ?? "",
+    p_category: input.category ?? "餐費補助",
+    p_status: status === "paid" ? "settled" : status === "rejected" ? "rejected" : "submitted",
+    p_allocations: input.allocations.map((allocation) => ({
+      employee_id: allocation.employee_id,
+      amount: Math.round(Number(allocation.amount) * 100) / 100,
+      note: allocation.note ?? ""
+    }))
+  });
+  if (error) throw new Error(error.message);
+  const savedReceipt = data?.receipt;
+  const savedClaims = Array.isArray(data?.claims) ? data.claims : [];
+  if (!savedReceipt) throw new Error("Failed to save receipt");
   return {
     receipts: [toReceipt(savedReceipt)],
-    allocations: (savedClaims ?? []).map(toAllocation)
+    allocations: savedClaims.map(toAllocation)
   };
 }
 
@@ -267,36 +182,14 @@ async function markReceiptsSupabase(receiptIds: string[], status: string) {
   const supabase = createSupabaseAdminClient();
   const normalized = normalizeStatus(status);
   const next = normalized === "paid" ? "settled" : normalized === "rejected" ? "rejected" : "submitted";
-  const { error } = await supabase.from("receipts").update({ status: next }).in("id", receiptIds);
+  const { data, error } = await supabase.rpc("mark_receipts_status", {
+    p_receipt_ids: receiptIds,
+    p_status: next
+  });
   if (error) throw new Error(error.message);
-  if (normalized === "paid") {
-    // Single query to get all claim IDs and subsidy amounts, then one bulk update
-    const { data: claims, error: readError } = await supabase
-      .from("receipt_claims").select("id, subsidy_amount").in("receipt_id", receiptIds);
-    if (readError) throw new Error(readError.message);
-    // Bulk update with case expression via rpc is complex; use per-amount grouping as next best
-    const updates = await Promise.all(
-      [...new Set((claims ?? []).map((c: any) => Number(c.subsidy_amount ?? 0)))].map((amt) => {
-        const ids = (claims ?? []).filter((c: any) => Number(c.subsidy_amount ?? 0) === amt).map((c: any) => c.id);
-        return supabase.from("receipt_claims").update({ status: "reimbursed", reimbursed_amount: amt }).in("id", ids);
-      })
-    );
-    const updateError = updates.find((result) => result.error)?.error;
-    if (updateError) throw new Error(updateError.message);
-  } else {
-    const claimPatch = { status: normalized === "rejected" ? "rejected" : "claimed", reimbursed_amount: 0 };
-    const { error: claimError } = await supabase.from("receipt_claims").update(claimPatch).in("receipt_id", receiptIds);
-    if (claimError) throw new Error(claimError.message);
-  }
-  const [updatedReceipts, updatedClaims] = await Promise.all([
-    supabase.from("receipts").select("*").in("id", receiptIds),
-    supabase.from("receipt_claims").select("*").in("receipt_id", receiptIds)
-  ]);
-  const readError = updatedReceipts.error ?? updatedClaims.error;
-  if (readError) throw new Error(readError.message);
   return {
-    receipts: updatedReceipts.data ?? [],
-    claims: updatedClaims.data ?? []
+    receipts: data?.receipts ?? [],
+    claims: data?.claims ?? []
   };
 }
 

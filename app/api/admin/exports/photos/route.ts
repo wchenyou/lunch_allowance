@@ -15,23 +15,17 @@ export async function GET(request: Request) {
   const status = url.searchParams.get("status") ?? "";
   const category = url.searchParams.get("category") ?? "";
   const supabase = createSupabaseAdminClient();
+  const receiptSelect: string = employee
+    ? "id, submitted_by, department_id, status, receipt_date, metadata, receipt_claims(profile_id), receipt_attachments(*), filter_claims:receipt_claims!inner(profile_id)"
+    : "id, submitted_by, department_id, status, receipt_date, metadata, receipt_claims(profile_id), receipt_attachments(*)";
   let query = supabase
     .from("receipts")
-    .select("id, submitted_by, department_id, status, receipt_date, metadata, receipt_claims(profile_id), receipt_attachments(*)")
+    .select(receiptSelect)
     .order("receipt_date", { ascending: false })
     .order("created_at", { ascending: false });
   if (guard.session!.departmentIds.length) query = query.in("department_id", guard.session!.departmentIds);
   if (employee) {
-    const { data: employeeClaims, error: employeeClaimsError } = await supabase
-      .from("receipt_claims")
-      .select("receipt_id")
-      .eq("profile_id", employee)
-      .limit(2000);
-    if (employeeClaimsError) return new Response(employeeClaimsError.message, { status: 500 });
-    const claimReceiptIds = [...new Set((employeeClaims ?? []).map((claim) => claim.receipt_id))];
-    query = claimReceiptIds.length
-      ? query.or(`submitted_by.eq.${employee},id.in.(${claimReceiptIds.join(",")})`)
-      : query.eq("submitted_by", employee);
+    query = query.eq("filter_claims.profile_id", employee);
   }
   if (start) query = query.gte("receipt_date", start);
   if (end) query = query.lte("receipt_date", end);
