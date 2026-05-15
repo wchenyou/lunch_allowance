@@ -27,7 +27,6 @@ export async function GET(request: Request) {
       receipts: [],
       claims: [],
       attachments: [],
-      claimantPermissions: [],
       summary: emptyAdminSummary(),
       limited: false
     });
@@ -60,17 +59,13 @@ export async function GET(request: Request) {
   }
   receiptQuery = receiptQuery.limit(mode === "stats" ? limit : DEFAULT_RECEIPT_LIMIT + 1);
 
-  let claimantPermissionsQuery = supabase.from("claimant_permissions").select("*");
-  if (departmentIds?.length) claimantPermissionsQuery = claimantPermissionsQuery.in("department_id", departmentIds);
-
   const shouldLoadDirectory = view !== "summary";
-  const shouldLoadReceipts = view !== "permissions" && view !== "summary";
-  const shouldLoadSummary = view !== "permissions" && mode !== "stats";
-  const [departments, profiles, receipts, claimantPermissions, summaryResult] = await Promise.all([
+  const shouldLoadReceipts = view !== "summary";
+  const shouldLoadSummary = mode !== "stats";
+  const [departments, profiles, receipts, summaryResult] = await Promise.all([
     shouldLoadDirectory ? departmentQuery : Promise.resolve({ data: [], error: null }),
     shouldLoadDirectory ? profileQuery : Promise.resolve({ data: [], error: null }),
     shouldLoadReceipts ? receiptQuery : Promise.resolve({ data: [], error: null }),
-    view === "permissions" ? claimantPermissionsQuery : Promise.resolve({ data: [], error: null }),
     shouldLoadSummary
       ? supabase.rpc("admin_receipt_dashboard_summary", { scoped_department_ids: departmentIds ?? null })
       : Promise.resolve({ data: null, error: null })
@@ -84,7 +79,7 @@ export async function GET(request: Request) {
     initialReceiptIds.length ? supabase.from("receipt_claims").select("*").in("receipt_id", initialReceiptIds) : Promise.resolve({ data: [], error: null }),
     shouldLoadAttachments && initialReceiptIds.length ? supabase.from("receipt_attachments").select("*").in("receipt_id", initialReceiptIds) : Promise.resolve({ data: [], error: null })
   ]);
-  const error = departments.error ?? profiles.error ?? receipts.error ?? claimantPermissions.error ?? summaryResult.error ?? claims.error ?? attachments.error;
+  const error = departments.error ?? profiles.error ?? receipts.error ?? summaryResult.error ?? claims.error ?? attachments.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   let scopedClaims = claims.data ?? [];
   if (employee) {
@@ -107,7 +102,6 @@ export async function GET(request: Request) {
     receipts: scopedReceipts,
     claims: scopedClaims,
     attachments: scopedAttachments,
-    claimantPermissions: claimantPermissions.data ?? [],
     summary: shouldLoadSummary ? normalizeAdminSummary(summaryResult.data) : undefined,
     limited
   });

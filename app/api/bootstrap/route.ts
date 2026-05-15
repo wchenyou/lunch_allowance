@@ -129,18 +129,37 @@ export async function GET() {
       }));
       allowedDepartments = allDepts ?? [];
     } else if (guard.session!.role === "employee") {
-      const { data: permittedRows } = await supabase
-        .from("claimant_permissions")
-        .select("claimant_profile_id")
-        .eq("employee_profile_id", currentProfileId);
-      const claimantIds = [...new Set([currentProfileId, ...(permittedRows ?? []).map((row: any) => row.claimant_profile_id)])];
+      const myDeptId = currentEmployee.department_id;
+      const targetDeptIds = new Set<string>();
+      if (myDeptId) targetDeptIds.add(myDeptId);
+
+      const { data: sharedAdmins } = myDeptId
+        ? await supabase
+            .from("department_admin_departments")
+            .select("admin_profile_id")
+            .eq("department_id", myDeptId)
+        : { data: [] };
+
+      const adminIds = [...new Set((sharedAdmins ?? []).map((scope: any) => scope.admin_profile_id))];
+      const { data: managedScopes } = adminIds.length
+        ? await supabase
+            .from("department_admin_departments")
+            .select("department_id")
+            .in("admin_profile_id", adminIds)
+        : { data: [] };
+
+      for (const scope of managedScopes ?? []) {
+        if (scope.department_id) targetDeptIds.add(scope.department_id);
+      }
+
+      const targetIdsArray = [...targetDeptIds];
       const [{ data: targetProfiles }, { data: targetDepts }] = await Promise.all([
-        claimantIds.length
+        targetIdsArray.length
           ? supabase.from("profiles").select("*, departments!profiles_department_id_fkey(name)")
-              .in("id", claimantIds).eq("active", true).eq("app_role", "employee").order("display_name", { ascending: true })
+              .in("department_id", targetIdsArray).eq("active", true).eq("app_role", "employee").order("display_name", { ascending: true })
           : Promise.resolve({ data: [] }),
-        currentEmployee.department_id
-          ? supabase.from("departments").select("*").eq("id", currentEmployee.department_id).eq("active", true)
+        targetIdsArray.length
+          ? supabase.from("departments").select("*").in("id", targetIdsArray).eq("active", true)
           : Promise.resolve({ data: [] })
       ]);
 

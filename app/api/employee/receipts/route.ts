@@ -52,20 +52,66 @@ export async function POST(request: Request) {
       }
     }
 
-    const requestedClaimantIds = allocationIds.filter((id) => id !== profileId);
-    const { data: allowedRows, error: allowedError } = requestedClaimantIds.length
-      ? await supabase
-          .from("claimant_permissions")
-          .select("claimant_profile_id")
-          .eq("employee_profile_id", profileId)
-          .in("claimant_profile_id", requestedClaimantIds)
-      : { data: [], error: null };
-    if (allowedError) throw allowedError;
+    let allowedIds = new Set<string>([profileId]);
+    if (guard.session!.role === "super_admin") {
+      const { data: employees, error } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("active", true)
+        .eq("app_role", "employee");
+      if (error) throw error;
+      allowedIds = new Set((employees ?? []).map((employee) => employee.id));
+    } else if (guard.session!.role === "department_admin") {
+      const { data: employees, error } = guard.session!.departmentIds.length
+        ? await supabase
+            .from("profiles")
+            .select("id")
+            .in("department_id", guard.session!.departmentIds)
+            .eq("active", true)
+            .eq("app_role", "employee")
+        : { data: [], error: null };
+      if (error) throw error;
+      allowedIds = new Set((employees ?? []).map((employee) => employee.id));
+    } else {
+      const submitterDeptId = submitterProfile.data?.department_id;
+      const targetDeptIds = new Set<string>();
+      if (submitterDeptId) targetDeptIds.add(submitterDeptId);
 
-    const allowedIds = new Set([profileId, ...(allowedRows ?? []).map((row) => row.claimant_profile_id)]);
+      const { data: sharedAdmins, error: sharedAdminsError } = submitterDeptId
+        ? await supabase
+            .from("department_admin_departments")
+            .select("admin_profile_id")
+            .eq("department_id", submitterDeptId)
+        : { data: [], error: null };
+      if (sharedAdminsError) throw sharedAdminsError;
+
+      const adminIds = [...new Set((sharedAdmins ?? []).map((scope) => scope.admin_profile_id))];
+      const { data: managedScopes, error: managedScopesError } = adminIds.length
+        ? await supabase
+            .from("department_admin_departments")
+            .select("department_id")
+            .in("admin_profile_id", adminIds)
+        : { data: [], error: null };
+      if (managedScopesError) throw managedScopesError;
+
+      for (const scope of managedScopes ?? []) {
+        if (scope.department_id) targetDeptIds.add(scope.department_id);
+      }
+
+      const { data: employees, error } = targetDeptIds.size
+        ? await supabase
+            .from("profiles")
+            .select("id")
+            .in("department_id", [...targetDeptIds])
+            .eq("active", true)
+            .eq("app_role", "employee")
+        : { data: [], error: null };
+      if (error) throw error;
+      allowedIds = new Set((employees ?? []).map((employee) => employee.id));
+    }
 
     if (allocationIds.some((id) => !allowedIds.has(id))) {
-      return NextResponse.json({ error: "只能選擇行政維護允許的請款人" }, { status: 403 });
+      return NextResponse.json({ error: "只能選擇同一位部門行政管轄範圍內的請款人" }, { status: 403 });
     }
 
     // 分開查詢收據狀態，避免巢狀 join 失敗導致整個驗證中斷

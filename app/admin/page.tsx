@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, ClipboardList, Download, FileArchive, KeyRound, LogOut, ReceiptText, Trash2, UsersRound, WalletCards, X } from "lucide-react";
+import { ClipboardList, Download, FileArchive, KeyRound, LogOut, ReceiptText, Trash2, WalletCards, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -8,7 +8,7 @@ import type { Department, Profile } from "@/app/lib/domain";
 
 const money = (value: number) => new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(value || 0);
 
-type Tab = "receipts" | "payouts" | "stats" | "permissions";
+type Tab = "receipts" | "payouts" | "stats";
 type Claim = { id: string; receipt_id: string; profile_id: string; claimed_amount: number; subsidy_amount: number; reimbursed_amount: number; status: string };
 type Attachment = { id: string; receipt_id: string; object_path: string; file_name?: string; signed_url?: string | null };
 type ReceiptRow = {
@@ -26,7 +26,6 @@ type ReceiptRow = {
   created_at: string;
   metadata?: { applicant_name?: string; claimant_names?: string[]; category?: string };
 };
-type Permission = { department_id: string; employee_profile_id: string; claimant_profile_id: string };
 type AdminSummary = { pendingApplicantCount: number; pendingReceiptCount: number; totalClaimedAmount: number; totalSubsidyAmount: number };
 type AdminScope = {
   departments: Department[];
@@ -34,7 +33,6 @@ type AdminScope = {
   receipts: ReceiptRow[];
   claims: Claim[];
   attachments: Attachment[];
-  claimantPermissions: Permission[];
   summary?: AdminSummary;
   limited?: boolean;
 };
@@ -43,7 +41,7 @@ const statusLabels: Record<string, string> = { submitted: "申請中", settled: 
 
 export default function DepartmentAdminPage() {
   const router = useRouter();
-  const [scope, setScope] = useState<AdminScope>({ departments: [], profiles: [], receipts: [], claims: [], attachments: [], claimantPermissions: [] });
+  const [scope, setScope] = useState<AdminScope>({ departments: [], profiles: [], receipts: [], claims: [], attachments: [] });
   const [signedUrlCache, setSignedUrlCache] = useState<Record<string, string>>({});
   const [session, setSession] = useState<any>(null);
   const [tab, setTab] = useState<Tab>("receipts");
@@ -155,10 +153,9 @@ export default function DepartmentAdminPage() {
     setScope((current) => ({
       departments: nextScope.departments?.length ? nextScope.departments : current.departments,
       profiles: nextScope.profiles?.length ? nextScope.profiles : current.profiles,
-      receipts: targetTab === "permissions" ? current.receipts : nextScope.receipts ?? current.receipts,
-      claims: targetTab === "permissions" ? current.claims : nextScope.claims ?? current.claims,
-      attachments: targetTab === "payouts" || targetTab === "permissions" ? current.attachments : nextScope.attachments ?? current.attachments,
-      claimantPermissions: targetTab === "permissions" ? nextScope.claimantPermissions ?? [] : current.claimantPermissions,
+      receipts: nextScope.receipts ?? current.receipts,
+      claims: nextScope.claims ?? current.claims,
+      attachments: targetTab === "payouts" ? current.attachments : nextScope.attachments ?? current.attachments,
       summary: nextScope.summary ?? current.summary,
       limited: nextScope.limited
     }));
@@ -224,25 +221,6 @@ export default function DepartmentAdminPage() {
     }));
   }
 
-  async function savePermissions(employeeId: string, claimantIds: string[]) {
-    const response = await fetch("/api/admin/claimant-permissions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ employee_profile_id: employeeId, claimant_profile_ids: claimantIds })
-    });
-    const body = await response.json();
-    setMessage(response.ok ? "合單名單已更新" : body.error || "合單名單更新失敗");
-    if (response.ok) {
-      setScope((current) => ({
-        ...current,
-        claimantPermissions: [
-          ...current.claimantPermissions.filter((permission) => permission.employee_profile_id !== employeeId),
-          ...(body.claimantPermissions ?? [])
-        ]
-      }));
-    }
-  }
-
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/");
@@ -282,7 +260,6 @@ export default function DepartmentAdminPage() {
           <NavButton active={tab === "receipts"} icon={<ClipboardList size={16} />} label="單據列表" onClick={() => setTab("receipts")} />
           <NavButton active={tab === "payouts"} icon={<WalletCards size={16} />} label="員工請款" onClick={() => setTab("payouts")} />
           <NavButton active={tab === "stats"} icon={<ReceiptText size={16} />} label="單據統計" onClick={() => setTab("stats")} />
-          <NavButton active={tab === "permissions"} icon={<UsersRound size={16} />} label="合單名單" onClick={() => setTab("permissions")} />
         </nav>
         <div style={{ marginTop: "auto" }}>
           <NavButton active={false} icon={<KeyRound size={16} />} label="更改密碼" onClick={() => setPasswordModalOpen(true)} />
@@ -375,26 +352,6 @@ export default function DepartmentAdminPage() {
           </section>
         ) : null}
 
-        {tab === "permissions" ? (
-          <section className="grid two">
-            <div className="panel">
-              <div className="panel-title"><Building2 size={17} /><h2>授權部門</h2></div>
-              <div className="role-list">
-                {scope.departments.map((department) => <div className="role-item" key={department.id}><strong>{department.code}</strong><span>{department.name}</span><span>{department.active ? "啟用" : "停用"}</span></div>)}
-              </div>
-            </div>
-            <div className="panel">
-              <div className="panel-title"><UsersRound size={17} /><h2>員工合單名單</h2></div>
-              <div className="permission-list">
-                {employees.map((employee) => {
-                  const sameDepartmentEmployees = employees.filter((candidate) => candidate.department_id === employee.department_id && candidate.id !== employee.id);
-                  const checked = new Set(scope.claimantPermissions.filter((permission) => permission.employee_profile_id === employee.id).map((permission) => permission.claimant_profile_id));
-                  return <PermissionEditor key={employee.id} employee={employee} candidates={sameDepartmentEmployees} checked={checked} onSave={savePermissions} />;
-                })}
-              </div>
-            </div>
-          </section>
-        ) : null}
       </main>
       {activeEmployee ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setActiveEmployeeId("")}>
@@ -564,35 +521,6 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
   );
 }
 
-function PermissionEditor({ employee, candidates, checked, onSave }: { employee: Profile; candidates: Profile[]; checked: Set<string>; onSave: (employeeId: string, claimantIds: string[]) => void }) {
-  const [selected, setSelected] = useState(() => new Set(checked));
-  useEffect(() => setSelected(new Set(checked)), [checked]);
-  return (
-    <div className="permission-card">
-      <strong>{employee.display_name}</strong>
-      <div className="checkbox-grid">
-        {candidates.map((candidate) => (
-          <label className="check-tile" key={candidate.id}>
-            <input
-              type="checkbox"
-              checked={selected.has(candidate.id)}
-              onChange={(event) => {
-                const next = new Set(selected);
-                if (event.target.checked) next.add(candidate.id);
-                else next.delete(candidate.id);
-                setSelected(next);
-              }}
-            />
-            <span>{candidate.display_name}</span>
-          </label>
-        ))}
-        {!candidates.length ? <div className="empty compact">同部門沒有其他員工</div> : null}
-      </div>
-      <button className="primary-btn" onClick={() => onSave(employee.id, [...selected])}>儲存名單</button>
-    </div>
-  );
-}
-
 function NavButton({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void }) {
   return <button className={active ? "nav-btn active" : "nav-btn"} onClick={onClick}>{icon}{label}</button>;
 }
@@ -626,7 +554,6 @@ function tabTitle(tab: Tab) {
   return {
     receipts: "單據列表",
     payouts: "員工請款列表",
-    stats: "單據統計",
-    permissions: "合單名單維護"
+    stats: "單據統計"
   }[tab];
 }
