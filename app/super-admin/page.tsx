@@ -195,7 +195,7 @@ export default function SuperAdminPage() {
     const response = await fetch("/api/employee/password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ next_password: passwordForm.next_password })
+      body: JSON.stringify({ next_password: passwordForm.next_password, intended_role: "super_admin" })
     });
     const body = await response.json();
     if (!response.ok) {

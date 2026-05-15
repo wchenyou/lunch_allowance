@@ -218,7 +218,7 @@ export default function DepartmentAdminPage() {
     const response = await fetch("/api/employee/password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(passwordForm)
+      body: JSON.stringify({ ...passwordForm, intended_role: "department_admin" })
     });
     const body = await response.json();
     if (!response.ok) {

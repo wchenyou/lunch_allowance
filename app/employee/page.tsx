@@ -327,7 +327,7 @@ export default function EmployeeReceiptPage() {
     const response = await fetch("/api/employee/password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ next_password: passwordForm.next_password })
+      body: JSON.stringify({ next_password: passwordForm.next_password, intended_role: "employee" })
     });
     const body = await response.json();
     if (!response.ok) {
