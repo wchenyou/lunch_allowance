@@ -38,7 +38,6 @@ export async function GET(request: Request) {
   let receiptQuery = supabase
     .from("receipts")
     .select(receiptSelect)
-    .order("receipt_date", { ascending: false })
     .order("created_at", { ascending: false });
 
   if (departmentIds?.length) {

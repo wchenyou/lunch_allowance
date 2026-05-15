@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardList, Download, FileArchive, KeyRound, LogOut, ReceiptText, Trash2, WalletCards, X } from "lucide-react";
+import { ClipboardList, Download, FileArchive, KeyRound, LogOut, ReceiptText, WalletCards, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -192,21 +192,6 @@ export default function DepartmentAdminPage() {
     }
   }
 
-  async function deleteReceipt(id: string) {
-    const response = await fetch(`/api/receipts/${id}`, { method: "DELETE" });
-    const body = await response.json();
-    setMessage(response.ok ? "單據已刪除" : body.error || "刪除失敗");
-    if (response.ok) {
-      setScope((current) => ({
-        ...current,
-        receipts: current.receipts.filter((receipt) => receipt.id !== id),
-        claims: current.claims.filter((claim) => claim.receipt_id !== id),
-        attachments: current.attachments.filter((attachment) => attachment.receipt_id !== id)
-      }));
-      await refreshSummary();
-    }
-  }
-
   function applyReceiptMutation(updatedReceipts: ReceiptRow[], updatedClaims: Claim[]) {
     if (!updatedReceipts.length && !updatedClaims.length) return;
     const updatedReceiptIds = new Set(updatedReceipts.map((receipt) => receipt.id));
@@ -295,10 +280,6 @@ export default function DepartmentAdminPage() {
               onOpenAttachment={openAttachment}
               onPaid={(id) => markReceipts([id], "settled")}
               onRejected={(id) => markReceipts([id], "rejected")}
-              onRollback={(id) => markReceipts([id], "submitted")}
-              onDelete={(id) => {
-                if (window.confirm("確定要刪除此單據嗎？")) deleteReceipt(id);
-              }}
             />
           </section>
         ) : null}
@@ -394,10 +375,6 @@ export default function DepartmentAdminPage() {
               onOpenAttachment={openAttachment}
               onPaid={(id) => markReceipts([id], "settled")}
               onRejected={(id) => markReceipts([id], "rejected")}
-              onRollback={(id) => markReceipts([id], "submitted")}
-              onDelete={(id) => {
-                if (window.confirm("確定要刪除此單據嗎？")) deleteReceipt(id);
-              }}
             />
           </div>
         </div>
@@ -439,7 +416,7 @@ export default function DepartmentAdminPage() {
   );
 }
 
-function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profilesById, departmentsById, onOpenAttachment, onPaid, onRejected, onRollback, onDelete, isStats }: {
+function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profilesById, departmentsById, onOpenAttachment, onPaid, onRejected, isStats }: {
   receipts: ReceiptRow[];
   claimsByReceipt: Map<string, Claim[]>;
   attachmentsByReceipt: Map<string, Attachment[]>;
@@ -448,42 +425,42 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
   onOpenAttachment: (attachment: Attachment) => void;
   onPaid?: (id: string) => void;
   onRejected?: (id: string) => void;
-  onRollback?: (id: string) => void;
-  onDelete?: (id: string) => void;
   isStats?: boolean;
 }) {
+  const sortedReceipts = [...receipts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const headers = isStats 
-    ? ["申請日期", "編號", "補助日期", "項目", "部門", "請款人", "請款人數", "單據總金額", "可請款金額", "照片名稱", ""]
-    : ["申請日期", "編號", "補助日期", "項目", "部門", "申請人", "請款人", "請款人數", "單據總金額", "可請款金額", "狀態", "照片", ""];
+    ? ["編號", "申請日期", "單據日期", "項目", "店家名稱", "部門", "請款人", "請款人數", "單據總金額", "可請款金額", "照片名稱"]
+    : ["編號", "申請日期", "單據日期", "項目", "店家名稱", "部門", "申請人", "請款人", "請款人數", "單據總金額", "可請款金額", "狀態", "照片", ""];
 
   return (
     <DataTable
       headers={headers}
-      rows={receipts.map((receipt, index) => {
+      rows={sortedReceipts.map((receipt, index) => {
         const claims = claimsByReceipt.get(receipt.id) ?? [];
         const attachments = attachmentsByReceipt.get(receipt.id) ?? [];
         
         if (isStats) {
           return [
-            receipt.created_at.slice(0, 10),
             index + 1,
+            receipt.created_at.slice(0, 10),
             receipt.receipt_date,
             receipt.metadata?.category ?? "餐費補助",
+            receipt.merchant ?? "-",
             departmentsById.get(receipt.department_id ?? "")?.name ?? "-",
             claims.map((claim) => profilesById.get(claim.profile_id)?.display_name ?? "-").join("、"),
             claims.length.toString(),
             money(Number(receipt.total_amount ?? 0)),
             money(claims.reduce((sum, claim) => sum + Number(claim.subsidy_amount || 0), 0)),
-            attachments.length ? attachments.map((attachment) => <button className="link-button" key={attachment.id} onClick={() => onOpenAttachment(attachment)}>{attachment.file_name ?? attachment.object_path.split("/").pop()}</button>) : "-",
-            null
+            attachments.length ? attachments.map((attachment) => <button className="link-button" key={attachment.id} onClick={() => onOpenAttachment(attachment)}>{attachment.file_name ?? attachment.object_path.split("/").pop()}</button>) : "-"
           ];
         }
 
         return [
-          receipt.created_at.slice(0, 10),
           index + 1,
+          receipt.created_at.slice(0, 10),
           receipt.receipt_date,
           receipt.metadata?.category ?? "餐費補助",
+          receipt.merchant ?? "-",
           departmentsById.get(receipt.department_id ?? "")?.name ?? "-",
           receipt.metadata?.applicant_name ?? profilesById.get(receipt.submitted_by)?.display_name ?? "-",
           claims.map((claim) => profilesById.get(claim.profile_id)?.display_name ?? "-").join("、"),
@@ -495,24 +472,6 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
           <div className="row-actions" key="actions">
             {onPaid && receipt.status === "submitted" ? <button className="ghost-btn compact" onClick={() => onPaid(receipt.id)}>請款</button> : null}
             {onRejected && receipt.status === "submitted" ? <button className="ghost-btn compact" onClick={() => onRejected(receipt.id)}>退單</button> : null}
-            {onRollback && receipt.status === "settled" ? (
-              <button 
-                className="ghost-btn compact" 
-                style={{ color: "var(--accent)" }} 
-                onClick={() => {
-                  if (window.confirm("確定要收回此單據嗎？狀態將變回申請中。")) {
-                    onRollback(receipt.id);
-                  }
-                }}
-              >
-                收回
-              </button>
-            ) : null}
-            {onDelete && (receipt.status === "submitted" || receipt.status === "rejected") ? (
-              <button className="ghost-btn compact" title="刪除單據" onClick={() => onDelete(receipt.id)}>
-                <Trash2 size={14} />
-              </button>
-            ) : null}
           </div>
         ];
       })}

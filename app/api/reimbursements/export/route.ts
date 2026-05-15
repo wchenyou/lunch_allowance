@@ -20,7 +20,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from("receipts")
     .select(receiptSelect)
-    .order("receipt_date", { ascending: false });
+    .order("created_at", { ascending: false });
   if (guard.session!.departmentIds.length) query = query.in("department_id", guard.session!.departmentIds);
   if (employee) {
     query = query.eq("filter_claims.profile_id", employee);
@@ -40,15 +40,16 @@ export async function GET(request: Request) {
   if (error) return new Response(error.message, { status: 500 });
   const receipts = data ?? [];
   const lines = [
-    ["申請日期", "編號", "補助日期", "項目", "部門", "請款人名稱", "請款人數", "單據金額", "可請款金額", "單據狀態", "單據照片名稱"],
+    ["編號", "申請日期", "單據日期", "項目", "店家名稱", "部門", "請款人名稱", "請款人數", "單據金額", "可請款金額", "單據狀態", "單據照片名稱"],
     ...receipts.map((receipt: any, index: number) => {
       const claims = receipt.receipt_claims ?? [];
       const attachments = receipt.receipt_attachments ?? [];
       return [
-        (receipt.created_at ?? "").slice(0, 10),
         index + 1,
+        (receipt.created_at ?? "").slice(0, 10),
         receipt.receipt_date,
         receipt.metadata?.category ?? "餐費補助",
+        receipt.merchant ?? "",
         receipt.departments?.name ?? "",
         claims.map((claim: any) => claim.profiles?.display_name ?? "").filter(Boolean).join("、"),
         claims.length,
