@@ -428,7 +428,12 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
   onRejected?: (id: string) => void;
   isStats?: boolean;
 }) {
-  const sortedReceipts = [...receipts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const sortedReceipts = [...receipts].sort((a, b) => {
+    if (isStats) {
+      return `${a.receipt_date}|${a.created_at}`.localeCompare(`${b.receipt_date}|${b.created_at}`);
+    }
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
   const headers = isStats 
     ? ["編號", "申請日期", "單據日期", "項目", "店家名稱", "部門", "請款人", "請款人數", "單據總金額", "可請款金額", "照片名稱", "備註"]
     : ["編號", "申請日期", "單據日期", "項目", "店家名稱", "部門", "申請人", "請款人", "請款人數", "單據總金額", "可請款金額", "狀態", "照片", "", "備註"];
