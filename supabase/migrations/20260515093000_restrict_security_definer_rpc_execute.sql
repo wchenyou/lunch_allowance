@@ -2,7 +2,12 @@
 -- calls these RPCs with the service role only, so keep them off the public API
 -- surface for anon/authenticated clients.
 
-revoke execute on function public.rls_auto_enable() from public, anon, authenticated;
+do $$
+begin
+  if to_regprocedure('public.rls_auto_enable()') is not null then
+    revoke execute on function public.rls_auto_enable() from public, anon, authenticated;
+  end if;
+end $$;
 revoke execute on function public.save_receipt_with_claims(uuid, date, uuid, text, text, numeric, text, text, public.receipt_status, jsonb) from public, anon, authenticated;
 revoke execute on function public.mark_receipts_status(uuid[], public.receipt_status) from public, anon, authenticated;
 

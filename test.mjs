@@ -1,7 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = "http://127.0.0.1:54321";
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "sb_secret_N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz";
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseKey) {
+  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY. Load .env.local before running this script.");
+}
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -21,7 +25,7 @@ async function run() {
   }, { onConflict: "employee_no" }).select().single();
   if (empErr) throw empErr;
 
-  const { data: admin, error: adminErr } = await supabase.from("profiles").upsert({
+  const { error: adminErr } = await supabase.from("profiles").upsert({
     employee_no: "ADM001",
     display_name: "Test Admin",
     department_id: deptId,

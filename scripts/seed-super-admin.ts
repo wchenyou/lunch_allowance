@@ -7,7 +7,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { createHmac, randomBytes, scrypt as scryptCallback } from "node:crypto";
+import { randomBytes, scrypt as scryptCallback } from "node:crypto";
 
 // ──────────────────────────────────────────────────────────
 // 設定：修改這裡的帳號/密碼

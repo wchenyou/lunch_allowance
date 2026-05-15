@@ -2,7 +2,7 @@
 
 import { ClipboardList, Download, FileArchive, KeyRound, LogOut, ReceiptText, WalletCards, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { Department, Profile } from "@/app/lib/domain";
 
@@ -23,6 +23,7 @@ type ReceiptRow = {
   subsidy_amount: number;
   reimbursed_amount: number;
   status: string;
+  note: string | null;
   created_at: string;
   metadata?: { applicant_name?: string; claimant_names?: string[]; category?: string };
 };
@@ -54,21 +55,7 @@ export default function DepartmentAdminPage() {
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "" });
 
-  useEffect(() => {
-    refresh();
-  }, []);
-
-  useEffect(() => {
-    if (tab !== "stats") {
-      setHasSearched(false);
-      setCommittedFilters({ start: "", end: "", employee: "", status: "", category: "" });
-    }
-    if (!loadedTabs.has(tab)) {
-      refresh(tab);
-    }
-  }, [tab]);
-
-  async function refresh(nextTab: Tab = tab) {
+  const refresh = useCallback(async (nextTab: Tab = tab) => {
     const query = new URLSearchParams({ view: nextTab }).toString();
     const [scopeRes, sessionRes] = await Promise.all([
       fetch(`/api/admin/scope?${query}`, { cache: "no-store" }),
@@ -87,7 +74,21 @@ export default function DepartmentAdminPage() {
     if (sessionRes.ok) {
       setSession(sessionBody.session);
     }
-  }
+  }, [tab]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (tab !== "stats") {
+      setHasSearched(false);
+      setCommittedFilters({ start: "", end: "", employee: "", status: "", category: "" });
+    }
+    if (!loadedTabs.has(tab)) {
+      refresh(tab);
+    }
+  }, [loadedTabs, refresh, tab]);
 
   async function searchStats() {
     const query = new URLSearchParams({ ...filters, mode: "stats", view: "stats", limit: "500" }).toString();
@@ -429,8 +430,8 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
 }) {
   const sortedReceipts = [...receipts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const headers = isStats 
-    ? ["編號", "申請日期", "單據日期", "項目", "店家名稱", "部門", "請款人", "請款人數", "單據總金額", "可請款金額", "照片名稱"]
-    : ["編號", "申請日期", "單據日期", "項目", "店家名稱", "部門", "申請人", "請款人", "請款人數", "單據總金額", "可請款金額", "狀態", "照片", ""];
+    ? ["編號", "申請日期", "單據日期", "項目", "店家名稱", "部門", "請款人", "請款人數", "單據總金額", "可請款金額", "照片名稱", "備註"]
+    : ["編號", "申請日期", "單據日期", "項目", "店家名稱", "部門", "申請人", "請款人", "請款人數", "單據總金額", "可請款金額", "狀態", "照片", "", "備註"];
 
   return (
     <DataTable
@@ -451,7 +452,8 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
             claims.length.toString(),
             money(Number(receipt.total_amount ?? 0)),
             money(claims.reduce((sum, claim) => sum + Number(claim.subsidy_amount || 0), 0)),
-            attachments.length ? attachments.map((attachment) => <button className="link-button" key={attachment.id} onClick={() => onOpenAttachment(attachment)}>{attachment.file_name ?? attachment.object_path.split("/").pop()}</button>) : "-"
+            attachments.length ? attachments.map((attachment) => <button className="link-button" key={attachment.id} onClick={() => onOpenAttachment(attachment)}>{attachment.file_name ?? attachment.object_path.split("/").pop()}</button>) : "-",
+            receipt.note?.trim() || "-"
           ];
         }
 
@@ -472,7 +474,8 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
           <div className="row-actions" key="actions">
             {onPaid && receipt.status === "submitted" ? <button className="ghost-btn compact" onClick={() => onPaid(receipt.id)}>請款</button> : null}
             {onRejected && receipt.status === "submitted" ? <button className="ghost-btn compact" onClick={() => onRejected(receipt.id)}>退單</button> : null}
-          </div>
+          </div>,
+          receipt.note?.trim() || "-"
         ];
       })}
       empty="沒有符合條件的單據"
@@ -494,7 +497,7 @@ function DataTable({ headers, rows, empty }: { headers: string[]; rows: Array<Ar
     <div className="table-wrap">
       <table>
         <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
-        <tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td className={headers[cellIndex] === "請款人" || headers[cellIndex] === "申請人" ? "wrap-cell" : undefined} key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
+        <tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td className={["請款人", "申請人", "備註"].includes(headers[cellIndex]) ? "wrap-cell" : undefined} key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
       </table>
     </div>
   );

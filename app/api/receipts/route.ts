@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/app/lib/api/guards";
+import { requireDepartmentAdminReceiptScope } from "@/app/lib/api/scope";
 import { upsertReceipt } from "@/app/lib/storage";
 
 export async function POST(request: Request) {
@@ -14,6 +15,8 @@ export async function POST(request: Request) {
   }
   const invalidAllocation = input.allocations.some((allocation: any) => !allocation.employee_id || Number(allocation.amount) <= 0);
   if (invalidAllocation) return NextResponse.json({ error: "每筆分攤都需要員工與正數金額" }, { status: 400 });
+  const scopeError = await requireDepartmentAdminReceiptScope(guard.session!, input);
+  if (scopeError) return scopeError;
   const db = await upsertReceipt(input);
   return NextResponse.json(db);
 }

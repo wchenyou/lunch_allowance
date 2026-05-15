@@ -40,7 +40,7 @@ export async function GET(request: Request) {
   if (error) return new Response(error.message, { status: 500 });
   const receipts = data ?? [];
   const lines = [
-    ["編號", "申請日期", "單據日期", "項目", "店家名稱", "部門", "請款人名稱", "請款人數", "單據金額", "可請款金額", "單據狀態", "單據照片名稱"],
+    ["編號", "申請日期", "單據日期", "項目", "店家名稱", "部門", "請款人名稱", "請款人數", "單據金額", "可請款金額", "單據狀態", "單據照片名稱", "備註"],
     ...receipts.map((receipt: any, index: number) => {
       const claims = receipt.receipt_claims ?? [];
       const attachments = receipt.receipt_attachments ?? [];
@@ -56,7 +56,8 @@ export async function GET(request: Request) {
         Number(receipt.total_amount ?? 0),
         claims.reduce((sum: number, claim: any) => sum + Number(claim.subsidy_amount ?? 0), 0),
         statusLabel(receipt.status),
-        attachments.map((attachment: any) => attachment.object_path?.split("/").pop()).filter(Boolean).join("、")
+        attachments.map((attachment: any) => attachment.object_path?.split("/").pop()).filter(Boolean).join("、"),
+        receipt.note ?? ""
       ];
     })
   ];

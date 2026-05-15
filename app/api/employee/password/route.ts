@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/app/lib/api/guards";
-import { hashPassword, verifyPassword } from "@/app/lib/auth/password";
+import { hashPassword } from "@/app/lib/auth/password";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 
 export async function POST(request: Request) {

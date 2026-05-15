@@ -1,5 +1,6 @@
 # dependencies
 node_modules/
+.DS_Store
 
 # Next.js
 .next/
@@ -38,3 +39,8 @@ pnpm-debug.log*
 *secret*
 *credential*
 *credentials*
+
+# local-only screenshots and debug helpers
+demo_screenshots/
+內部報銷管理系統截圖/
+scripts/debug-*.ts

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/app/lib/api/guards";
+import { requireDepartmentAdminReceiptScope } from "@/app/lib/api/scope";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 import { deleteReceipt, upsertReceipt } from "@/app/lib/storage";
 
@@ -10,6 +11,8 @@ export async function PUT(request: Request, { params }: Params) {
   if (guard.response) return guard.response;
   const { id } = await params;
   const input = await request.json();
+  const scopeError = await requireDepartmentAdminReceiptScope(guard.session!, input, id);
+  if (scopeError) return scopeError;
   const db = await upsertReceipt(input, id);
   return NextResponse.json(db);
 }

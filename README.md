@@ -1,206 +1,161 @@
-# 內部報銷管理系統 &nbsp;![version](https://img.shields.io/badge/version-1.1.0-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+# Lunch Allowance
 
-> 一套輕量、開源的企業內部**餐費補助報銷管理系統**，基於 Next.js 15 + Supabase 構建。
-> 員工用手機拍照上傳單據，行政部門在後台一鍵核款——讓每日的午餐費用流程化繁為簡。
+![version](https://img.shields.io/badge/version-1.1.0-blue)
+![license](https://img.shields.io/badge/license-MIT-green)
 
----
+一套開源的企業餐費補助與收據報銷管理系統，使用 Next.js 15、TypeScript 與 Supabase 建置。員工可以用手機拍照上傳收據，行政人員可在後台審核、批次請款、匯出報表，適合用來管理每日餐費補助或類似的小額 reimbursement 流程。
 
-## ✨ 核心功能
+## 功能特色
 
-- 📱 **手機優先的員工上傳介面**：針對行動裝置優化，員工可直接用手機拍照上傳餐飲收據
-- 👥 **多人收據分攤**：支援單張收據多人手動分攤，自動計算每人當日補助上限
-- 💰 **智能補助計算**：依「每人每日上限 150 元」規則自動計算可請款金額
-- 🖼️ **收據影像上傳**：整合 Supabase Storage，支援照片上傳、自動壓縮與命名
-- 📊 **財務統計與導出**：按員工彙總請款金額，支援 CSV 匯出供財務入帳使用
-- ⚡ **批次核款**：行政人員可一次核准或退單，大幅提升管理效率
+- 手機優先的員工上傳介面，支援拍照或從相簿選取收據
+- 單張收據多人分攤，並依每人每日補助上限自動計算可請款金額
+- Supabase Storage 收據照片上傳、壓縮與路徑管理
+- 部門行政可審核、退單、批次請款
+- 依員工、日期與狀態查詢歷史單據
+- 匯出 CSV 報表與收據照片 ZIP
+- 三層角色權限：最高管理員、部門行政、員工
 
----
+## 角色與入口
 
-## 👤 三種角色權限說明
+| 角色 | 登入路徑 | 主要功能 |
+|------|----------|----------|
+| 最高管理員 | `/login/super-admin` | 管理部門、建立帳號、設定部門行政可管理的範圍 |
+| 部門行政 | `/login/admin` | 審核單據、退單、批次請款、匯出報表與照片 |
+| 員工 | `/login/employee` | 上傳收據、多人合單、查看個人請款紀錄與狀態 |
 
-本系統採用三層角色架構，每種角色皆有獨立的登入入口與操作介面。
+## 介面預覽
 
-### 🔴 最高管理員（Super Admin）
-**登入路徑：** `/login/super-admin`
+### 最高管理員
 
-負責全系統的組織架構與帳號管理，擁有最高權限。
-
-| 功能 | 說明 |
-|------|------|
-| 部門管理 | 新增、編輯、刪除部門 |
-| 帳號管理 | 建立員工與行政帳號、設定所屬部門與密碼 |
-| 權限指派 | 設定部門行政的管轄範圍（可跨部門） |
-
-> ⚠️ 刪除部門或帳號前，系統會自動檢查是否有關聯資料，若有未處理單據將阻擋刪除以保護資料完整性。
-
----
-
-### 🟡 部門行政（Department Admin）
-**登入路徑：** `/login`
-
-負責審核所屬員工的單據，是主要的財務作業人員。
-
-| 功能 | 說明 |
-|------|------|
-| 單據列表 | 查看所有員工的申請中單據，可個別核准（請款）或退單 |
-| 員工請款 | 依員工彙總可請款金額，支援「全部請款」一鍵批次操作 |
-| 單據統計 | 依日期、員工、類別等條件查詢歷史單據，匯出 CSV 或照片 ZIP |
-
----
-
-### 🟢 員工（Employee）
-**登入路徑：** `/login`
-
-一般使用者，主要在手機上操作，上傳餐飲收據申請補助。
-
-| 功能 | 說明 |
-|------|------|
-| 查看紀錄 | 查看個人所有單據與補助金額統計 |
-| 上傳單據 | 拍照或選取圖片上傳收據，填寫金額與日期 |
-| 多人合單 | 勾選同事共同分攤一張收據，各自填入請款金額 |
-| 追蹤狀態 | 即時查看單據狀態（申請中 / 已放款 / 退單） |
-
-> 📱 **員工介面針對手機優化**：彈窗表單、點擊區域與字體大小均依行動裝置設計，可直接在收據現場拍照送出。
-
----
-
-## 📸 介面預覽
-
-### 🔴 最高管理後台
-
-管理所有部門與人員帳號，包含新增部門、建立帳號及設定管理授權範圍。
+管理部門與人員帳號，包含新增部門、建立帳號及設定管理授權範圍。
 
 ![最高管理後台 - 部門與帳號管理](docs/screenshots/super_admin_dashboard.png)
 
----
+### 部門行政
 
-### 🟡 部門行政後台
-
-#### 單據列表
-查看所屬員工的所有申請中單據，可個別核准請款或退單，並查看附件照片。
+查看員工申請中的單據，可個別核准請款或退單，並查看附件照片。
 
 ![部門行政 - 單據列表](docs/screenshots/admin_receipt_list.png)
 
-#### 員工請款管理
-依員工彙總可請款金額，點選「請款管理」展開該員工的所有單據，可一次全部請款。
+依員工彙總可請款金額，展開後可一次請款該員工的所有待處理單據。
 
 ![部門行政 - 員工請款列表](docs/screenshots/admin_payout_list.png)
 
 ![部門行政 - 請款管理彈窗](docs/screenshots/admin_payout_modal.png)
 
-#### 單據統計
-依日期、員工、類別等條件篩選歷史單據，支援匯出 CSV 報表或照片 ZIP 壓縮包。
+依日期、員工、類別等條件篩選歷史單據，支援匯出 CSV 報表或照片 ZIP。
 
 ![部門行政 - 單據統計](docs/screenshots/admin_stats.png)
 
----
+### 員工手機端
 
-### 🟢 員工手機端
-
-#### 單據列表
-清楚列出個人所有單據，顯示待請款筆數與可請款總金額。
+員工可查看自己的單據紀錄、待請款筆數與可請款總金額。
 
 ![員工端 - 單據列表（手機版）](docs/screenshots/employee_receipt_list.png)
 
-#### 上傳單據（手機拍照介面）
-點選「上傳單據」後彈出表單，支援直接拍照或從相簿選取。送出後系統自動壓縮並命名照片。支援多人合單功能，勾選同事並分別填入各自的請款金額。
+上傳表單支援手機拍照、相簿選取與多人合單。
 
 ![員工端 - 上傳單據彈窗（手機版）](docs/screenshots/employee_upload_modal.png)
 
----
-
-## 🛠 技術棧
+## 技術棧
 
 | 類別 | 技術 |
 |------|------|
-| 框架 | Next.js 15 (App Router) |
-| 語言 | TypeScript |
-| 資料庫 | Supabase (PostgreSQL + RLS) |
-| 存儲 | Supabase Storage |
-| 樣式 | Vanilla CSS（響應式設計） |
-| 圖標 | Lucide React |
-| 部署 | Vercel / Docker |
+| Framework | Next.js 15 App Router |
+| Language | TypeScript |
+| Database | Supabase PostgreSQL + RLS |
+| Storage | Supabase Storage |
+| Styling | Vanilla CSS |
+| Icons | Lucide React |
+| Deployment | Vercel / Docker |
 
----
+## 快速開始
 
-## 🚀 快速開始
+### 需求
 
-### 1. 本地開發
+- Node.js 20+
+- npm
+- Supabase CLI
+
+### 安裝
 
 ```bash
-# 安裝依賴
 npm install
-
-# 複製環境變數範本
 cp .env.example .env.local
-
-# 啟動本地 Supabase（需先安裝 Supabase CLI）
-supabase start
-
-# 啟動開發伺服器
-npm run dev
 ```
 
-開啟 [http://localhost:3000](http://localhost:3000) 即可看到首頁。
-
-### 2. 環境變數配置
+編輯 `.env.local`：
 
 ```bash
-# 系統加密密鑰
-APP_SESSION_SECRET=your-random-session-secret
-ADMIN_PASSWORD=your-super-admin-password
+ADMIN_PASSWORD=change-this-admin-password
+APP_SESSION_SECRET=change-this-random-session-secret
 
-# Supabase 配置
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
-# 補助金額上限（選填，預設 150 元）
+RECEIPT_IMAGE_BUCKET=receipt-images
 DAILY_SUBSIDY_LIMIT=150
 ```
 
-### 3. 初始化資料庫
+### 初始化資料庫
 
-在 Supabase SQL Editor 中，依序執行 `supabase/migrations/` 資料夾內的所有 `.sql` 檔案。
-
-### 4. 建立 Demo 資料（選填）
+本機開發可使用 Supabase CLI：
 
 ```bash
-# 清空資料庫（謹慎使用）
-npx tsx --env-file=.env.local scripts/reset-db.ts
+supabase start
+supabase db reset
+```
 
-# 生成示範用的部門、帳號與單據資料
+若使用雲端 Supabase 專案，請依序套用 `supabase/migrations/` 內的 SQL migration。
+
+### 建立管理員或 Demo 資料
+
+只建立最高管理員：
+
+```bash
+npx tsx --env-file=.env.local scripts/seed-super-admin.ts
+```
+
+建立 Demo 部門、帳號與單據：
+
+```bash
 npx tsx --env-file=.env.local scripts/seed-demo-data.ts
 ```
 
-Demo 帳號：
-- **最高管理員**：`admin` / `admin`
-- **部門行政**：`admin_行政` / `12345678`
-- **一般員工**：`emp_行政_1` / `12345678`
+Demo 帳號僅供本地測試使用：
 
----
+| 角色 | 帳號 | 密碼 |
+|------|------|------|
+| 最高管理員 | `admin` | `admin` |
+| 部門行政 | `admin_行政` | `12345678` |
+| 一般員工 | `emp_行政_1` | `12345678` |
 
-## 📊 資料庫結構
+正式環境請不要使用 Demo 密碼，部署後請立即更換所有初始密碼，並使用高強度的 `APP_SESSION_SECRET`。
 
-| 資料表 | 說明 |
-|--------|------|
-| `profiles` | 帳號資訊、員工編號與角色 |
-| `departments` | 部門主檔 |
-| `receipts` | 收據主檔（日期、店家、金額、狀態） |
-| `receipt_claims` | 收據分攤明細與補助金額計算 |
-| `receipt_attachments` | 單據照片路徑 |
-| `department_admin_departments` | 部門行政的管轄授權關聯 |
-| `profile_credentials` | 自訂密碼登入憑證 |
-
----
-
-## 📦 Docker 部署
+### 啟動開發伺服器
 
 ```bash
-# 建置 Image
+npm run dev
+```
+
+開啟 [http://localhost:3000](http://localhost:3000)。
+
+## 常用指令
+
+```bash
+npm run dev        # 啟動開發伺服器
+npm run build      # 建置正式版本
+npm run start      # 啟動正式伺服器
+npm run lint       # 執行 ESLint
+npm run test:calc  # 驗證補助金額計算邏輯
+```
+
+## Docker
+
+```bash
 docker build -t lunch-allowance .
 
-# 啟動容器
 docker run -d \
   --name lunch-allowance-app \
   -p 8080:3000 \
@@ -211,31 +166,47 @@ docker run -d \
   lunch-allowance
 ```
 
----
+## 資料表
 
-## 📄 授權
+| 資料表 | 說明 |
+|--------|------|
+| `profiles` | 帳號、角色、員工編號與基本資料 |
+| `departments` | 部門主檔 |
+| `receipts` | 收據主檔 |
+| `receipt_claims` | 收據分攤與請款明細 |
+| `receipt_attachments` | 收據附件路徑 |
+| `department_admin_departments` | 部門行政可管理的部門範圍 |
+| `profile_credentials` | 自訂密碼登入憑證 |
 
-本專案採用 [MIT License](LICENSE) 開源授權，歡迎自由使用與二次開發。
+## 開源與安全注意事項
 
----
+- 不要提交 `.env.local`、`.vercel/`、`.next/`、`data/` 或任何真實收據照片。
+- `SUPABASE_SERVICE_ROLE_KEY` 只能在伺服器端使用，請勿暴露到瀏覽器或公開文件。
+- Demo 帳號和預設密碼只適合本地測試。
+- 公開截圖前請確認沒有真實姓名、部門、收據、公司資訊或內部網址。
+- 正式部署時請使用隨機且足夠長的 `APP_SESSION_SECRET`。
+- 建議在公開 repository 前確認 Supabase RLS policy、Storage bucket policy 與 production migration 都符合預期。
 
-## 📝 Changelog
+## 授權
+
+本專案採用 [MIT License](LICENSE) 開源授權。
+
+## Changelog
 
 ### v1.1.0 (2026-05-13)
-- **修復**：最高管理後台編輯帳號後儲存無反應問題（外鍵約束錯誤 `23503 created_by`）
-- **修復**：帳號更新時誤將 `onboarded_at` 重設的問題（現僅於新建帳號時設定）
-- **修復**：員工後台多人合單驗證失敗後，送出按鈕永久卡住的問題（`isSubmitting` 未重置）
-- **優化**：員工上傳單據彈窗縮減為手機適合的寬度（移除 `wide` class，max 520px）
-- **新增**：`docs/screenshots/` UI 截圖目錄，用於 README 圖文說明
-- **改寫**：README 全面重構，加入三種角色說明、手機優先特色說明與圖文截圖區
-- **修正**：`seed-demo-data.ts` TypeScript null 型別檢查，確保 Docker build 成功
+
+- 修復最高管理後台編輯帳號後儲存無反應問題
+- 修復帳號更新時誤將 `onboarded_at` 重設的問題
+- 修復員工後台多人合單驗證失敗後送出按鈕永久卡住的問題
+- 優化員工上傳單據彈窗的手機版寬度
+- 新增 `docs/screenshots/` UI 截圖目錄
+- 強化 README 的角色說明、快速開始與開源安全注意事項
+- 修正 `seed-demo-data.ts` TypeScript null 型別檢查
 
 ### v1.0.0 (2026-05-13)
-首次正式開源發布。
-- 移除 Google Sheets 整合，系統以 Supabase 為唯一資料來源
-- 部門與帳號刪除改為硬刪除（有關聯資料時阻擋並提示）
-- 刪除操作前加入 `confirm()` 確認彈窗
-- 修正 Admin 後台側邊欄動態顯示登入帳號名稱
-- 修正登入 Session 帳號 fallback 邏輯
-- 最高管理後台側邊欄顯示登入者姓名與帳號
-- 員工請款管理彈窗加入請款筆數與收據金額統計，並過濾僅顯示「申請中」狀態
+
+- 首次正式開源發布
+- 移除 Google Sheets 整合，以 Supabase 作為唯一資料來源
+- 部門與帳號刪除改為硬刪除，有關聯資料時阻擋並提示
+- 刪除操作前加入確認彈窗
+- 修正後台側邊欄與登入 Session fallback 邏輯
