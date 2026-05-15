@@ -20,7 +20,8 @@ export async function GET(request: Request) {
   let query = supabase
     .from("receipts")
     .select(receiptSelect)
-    .order("created_at", { ascending: false });
+    .order("receipt_date", { ascending: true })
+    .order("created_at", { ascending: true });
   if (guard.session!.departmentIds.length) query = query.in("department_id", guard.session!.departmentIds);
   if (employee) {
     query = query.eq("filter_claims.profile_id", employee);
