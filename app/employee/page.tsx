@@ -169,7 +169,7 @@ export default function EmployeeReceiptPage() {
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/");
+    router.push("/login/employee");
   }
 
   async function handleDeleteReceipt(receiptId: string) {

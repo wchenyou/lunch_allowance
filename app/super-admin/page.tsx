@@ -182,7 +182,7 @@ export default function SuperAdminPage() {
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/");
+    router.push("/login/super-admin");
   }
 
   async function changePassword(event: FormEvent) {
