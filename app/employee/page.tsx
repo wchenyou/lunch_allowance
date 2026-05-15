@@ -24,6 +24,9 @@ export default function EmployeeReceiptPage() {
   const [attachments, setAttachments] = useState<ReceiptAttachment[]>([]);
   const [signedUrlCache, setSignedUrlCache] = useState<Record<string, string>>({});
   const [summary, setSummary] = useState<Summary>({ submittedTotal: 0, paidTotal: 0, unpaidTotal: 0, pendingCount: 0, pendingTotalAmount: 0, pendingClaimableAmount: 0 });
+  const [hasMoreReceipts, setHasMoreReceipts] = useState(false);
+  const [isLoadingReceipts, setIsLoadingReceipts] = useState(false);
+  const [directoryLoaded, setDirectoryLoaded] = useState(false);
   const [form, setForm] = useState({
     date: todayIso(),
     merchant: "",
@@ -68,9 +71,68 @@ export default function EmployeeReceiptPage() {
     setAllocations(data.allocations ?? []);
     setAttachments(data.attachments ?? []);
     setSummary(data.summary ?? { submittedTotal: 0, paidTotal: 0, unpaidTotal: 0, pendingCount: 0, pendingTotalAmount: 0, pendingClaimableAmount: 0 });
+    setHasMoreReceipts(Boolean(data.hasMore));
+    setDirectoryLoaded(false);
     if (currentEmployee) {
       setClaimInputs((current) => current.length ? current : [{ employee_id: currentEmployee.employee_id, amount: "" }]);
     }
+  }
+
+  async function loadReceiptPage(offset: number) {
+    if (isLoadingReceipts) return false;
+    setIsLoadingReceipts(true);
+    setMessage("");
+    try {
+      const query = new URLSearchParams({ mode: "receipts", offset: String(offset), limit: String(PAGE_SIZE) });
+      const response = await fetch(`/api/bootstrap?${query}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) {
+        setMessage(data.error || "單據載入失敗");
+        return false;
+      }
+      const nextReceipts = (data.receipts ?? []) as Receipt[];
+      const nextAllocations = (data.allocations ?? []) as Allocation[];
+      const nextAttachments = (data.attachments ?? []) as ReceiptAttachment[];
+      const nextReceiptIds = new Set(nextReceipts.map((receipt) => receipt.receipt_id));
+      const nextAllocationIds = new Set(nextAllocations.map((allocation) => allocation.allocation_id));
+      const nextAttachmentIds = new Set(nextAttachments.map((attachment) => attachment.attachment_id));
+      setReceipts((current) => sortReceipts([...current.filter((receipt) => !nextReceiptIds.has(receipt.receipt_id)), ...nextReceipts]));
+      setAllocations((current) => [...current.filter((allocation) => !nextAllocationIds.has(allocation.allocation_id)), ...nextAllocations]);
+      setAttachments((current) => [...current.filter((attachment) => !nextAttachmentIds.has(attachment.attachment_id)), ...nextAttachments]);
+      setHasMoreReceipts(Boolean(data.hasMore));
+      return true;
+    } finally {
+      setIsLoadingReceipts(false);
+    }
+  }
+
+  async function loadDirectory() {
+    if (directoryLoaded) return;
+    const response = await fetch("/api/bootstrap?mode=directory", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) {
+      setMessage(data.error || "合單名單載入失敗");
+      return;
+    }
+    setAllowedClaimants(data.allowedClaimants ?? data.employees ?? []);
+    setDepartments(data.departments ?? []);
+    setDirectoryLoaded(true);
+  }
+
+  async function openUploadModal() {
+    setUploadModalOpen(true);
+    setMessage("");
+    void loadDirectory();
+  }
+
+  async function goToNextPage() {
+    const nextPage = page + 1;
+    if (nextPage * PAGE_SIZE >= receipts.length) {
+      if (!hasMoreReceipts) return;
+      const loaded = await loadReceiptPage(receipts.length);
+      if (!loaded) return;
+    }
+    setPage(nextPage);
   }
 
   const activeClaimants = useMemo(() => allowedClaimants.filter((claimant) => claimant.active), [allowedClaimants]);
@@ -294,7 +356,7 @@ export default function EmployeeReceiptPage() {
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
             <button 
               className="ghost-btn compact"
-              onClick={() => { setUploadModalOpen(true); setMessage(""); }}
+              onClick={openUploadModal}
               style={{ borderRadius: "8px" }}
             >
               <Camera size={15} />
@@ -418,7 +480,7 @@ export default function EmployeeReceiptPage() {
               );
             })}
             {!receipts.length ? <p className="form-message">尚未送出單據</p> : null}
-            {receipts.length > PAGE_SIZE && (
+            {(receipts.length > PAGE_SIZE || hasMoreReceipts) && (
               <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "12px", padding: "16px 0 4px" }}>
                 <button
                   className="ghost-btn compact"
@@ -428,14 +490,14 @@ export default function EmployeeReceiptPage() {
                   上一頁
                 </button>
                 <span style={{ fontSize: "13px", color: "var(--soft)" }}>
-                  {page + 1} / {Math.ceil(receipts.length / PAGE_SIZE)}
+                  {page + 1} / {hasMoreReceipts ? "..." : Math.ceil(receipts.length / PAGE_SIZE)}
                 </span>
                 <button
                   className="ghost-btn compact"
-                  disabled={(page + 1) * PAGE_SIZE >= receipts.length}
-                  onClick={() => setPage(p => p + 1)}
+                  disabled={isLoadingReceipts || ((page + 1) * PAGE_SIZE >= receipts.length && !hasMoreReceipts)}
+                  onClick={goToNextPage}
                 >
-                  下一頁
+                  {isLoadingReceipts ? "載入中..." : "下一頁"}
                 </button>
               </div>
             )}

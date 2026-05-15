@@ -1,13 +1,21 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/app/lib/api/guards";
+import type { AppSession } from "@/app/lib/auth/session";
 import { normalizeStatus } from "@/app/lib/calculations";
 import { RECEIPT_IMAGE_BUCKET } from "@/app/lib/domain";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 
-export async function GET() {
+const DEFAULT_RECEIPT_LIMIT = 15;
+const MAX_RECEIPT_LIMIT = 30;
+
+export async function GET(request: Request) {
   const guard = await requireSession(["employee", "department_admin", "super_admin"]);
   if (guard.response) return guard.response;
 
+  const url = new URL(request.url);
+  const mode = url.searchParams.get("mode") ?? "initial";
+  const offset = clampOffset(url.searchParams.get("offset"));
+  const limit = clampLimit(url.searchParams.get("limit"));
   const currentProfileId = guard.session!.profileId;
   const supabase = createSupabaseAdminClient();
 
@@ -33,17 +41,32 @@ export async function GET() {
     updated_at: profileData.updated_at
   };
 
-  // ── 2. Fetch only this user's receipts (not all receipts) ─────────────────
+  if (mode === "directory") {
+    const directory = await loadAllowedDirectory(supabase, guard.session!, currentEmployee);
+    return NextResponse.json({
+      employees: [currentEmployee],
+      allowedClaimants: directory.allowedClaimants,
+      departments: directory.allowedDepartments,
+      receipts: [],
+      allocations: [],
+      attachments: []
+    });
+  }
+
+  // ── 2. Fetch only the current page of this user's receipts ────────────────
   const { data: receiptsRaw, error: receiptsError } = await supabase
     .from("receipts")
     .select("*")
     .or(`submitted_by.eq.${currentProfileId},payer_profile_id.eq.${currentProfileId}`)
     .order("receipt_date", { ascending: false })
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit);
 
   if (receiptsError) return NextResponse.json({ error: receiptsError.message }, { status: 500 });
 
-  const receipts = (receiptsRaw ?? []).map((r: any) => ({
+  const hasMore = (receiptsRaw ?? []).length > limit;
+  const visibleReceiptsRaw = (receiptsRaw ?? []).slice(0, limit);
+  const receipts = visibleReceiptsRaw.map((r: any) => ({
     receipt_id: r.id,
     date: r.receipt_date,
     payer_employee_id: r.payer_profile_id ?? r.submitted_by,
@@ -90,13 +113,14 @@ export async function GET() {
   }));
 
   // ── 4. Fetch attachments for this user's receipts ─────────────────────────
-  const { data: attachmentsRaw } = receiptIds.length
+  const { data: attachmentsRaw, error: attachmentsError } = receiptIds.length
     ? await supabase
         .from("receipt_attachments")
         .select("*")
         .in("receipt_id", receiptIds)
         .order("created_at", { ascending: true })
-    : { data: [] };
+    : { data: [], error: null };
+  if (attachmentsError) return NextResponse.json({ error: attachmentsError.message }, { status: 500 });
 
   const attachments = (attachmentsRaw ?? []).map((a: any) => ({
     attachment_id: a.id,
@@ -109,12 +133,46 @@ export async function GET() {
     created_at: a.created_at
   }));
 
-  // ── 5. Allowed claimants & departments (scoped lookup) ───────────────────
+  if (mode === "receipts") {
+    return NextResponse.json({
+      employees: [currentEmployee],
+      receipts,
+      allocations,
+      attachments,
+      hasMore
+    });
+  }
+
+  // ── 5. Financial summary calculation ─────────────────────────────────────
+  const { data: summaryData, error: summaryError } = await supabase.rpc("employee_receipt_summary", {
+    target_profile_id: currentProfileId
+  });
+  if (summaryError) return NextResponse.json({ error: summaryError.message }, { status: 500 });
+  const summary = normalizeEmployeeSummary(summaryData);
+
+  return NextResponse.json({
+    employees: [currentEmployee],
+    allowedClaimants: [currentEmployee],
+    departments: currentEmployee.department_id
+      ? [{ id: currentEmployee.department_id, name: currentEmployee.department_name ?? "", active: true }]
+      : [],
+    receipts,
+    allocations,
+    attachments,
+    summary,
+    hasMore
+  });
+}
+
+async function loadAllowedDirectory(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  session: AppSession,
+  currentEmployee: any
+) {
   let allowedClaimants: any[] = [currentEmployee];
   let allowedDepartments: any[] = [];
-
   try {
-    if (guard.session!.role === "super_admin") {
+    if (session.role === "super_admin") {
       const { data: allProfiles } = await supabase
         .from("profiles")
         .select("*, departments!profiles_department_id_fkey(name)")
@@ -128,7 +186,7 @@ export async function GET() {
         created_at: p.created_at, updated_at: p.updated_at
       }));
       allowedDepartments = allDepts ?? [];
-    } else if (guard.session!.role === "employee") {
+    } else if (session.role === "employee") {
       const myDeptId = currentEmployee.department_id;
       const targetDeptIds = new Set<string>();
       if (myDeptId) targetDeptIds.add(myDeptId);
@@ -171,7 +229,7 @@ export async function GET() {
       }));
       allowedDepartments = targetDepts ?? [];
     } else {
-      const targetDeptIds = guard.session!.departmentIds;
+      const targetDeptIds = session.departmentIds;
       const [{ data: targetProfiles }, { data: targetDepts }] = await Promise.all([
         targetDeptIds.length
           ? supabase.from("profiles").select("*, departments!profiles_department_id_fkey(name)")
@@ -193,22 +251,19 @@ export async function GET() {
     console.error("[bootstrap] allowedClaimants lookup failed:", err);
   }
 
-  // ── 6. Financial summary calculation ─────────────────────────────────────
-  const { data: summaryData, error: summaryError } = await supabase.rpc("employee_receipt_summary", {
-    target_profile_id: currentProfileId
-  });
-  if (summaryError) return NextResponse.json({ error: summaryError.message }, { status: 500 });
-  const summary = normalizeEmployeeSummary(summaryData);
+  return { allowedClaimants, allowedDepartments };
+}
 
-  return NextResponse.json({
-    employees: [currentEmployee],
-    allowedClaimants,
-    departments: allowedDepartments,
-    receipts,
-    allocations,
-    attachments,
-    summary
-  });
+function clampOffset(value: string | null) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return Math.floor(parsed);
+}
+
+function clampLimit(value: string | null) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_RECEIPT_LIMIT;
+  return Math.min(Math.floor(parsed), MAX_RECEIPT_LIMIT);
 }
 
 function normalizeEmployeeSummary(value: any) {
