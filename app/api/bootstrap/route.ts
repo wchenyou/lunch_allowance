@@ -144,11 +144,12 @@ export async function GET(request: Request) {
   }
 
   // ── 5. Financial summary calculation ─────────────────────────────────────
-  const { data: summaryData, error: summaryError } = await supabase.rpc("employee_receipt_summary", {
-    target_profile_id: currentProfileId
-  });
+  const { data: summaryReceipts, error: summaryError } = await supabase
+    .from("receipts")
+    .select("total_amount, subsidy_amount, reimbursed_amount, status")
+    .or(`submitted_by.eq.${currentProfileId},payer_profile_id.eq.${currentProfileId}`);
   if (summaryError) return NextResponse.json({ error: summaryError.message }, { status: 500 });
-  const summary = normalizeEmployeeSummary(summaryData);
+  const summary = buildEmployeeReceiptSummary(summaryReceipts ?? []);
 
   return NextResponse.json({
     employees: [currentEmployee],
@@ -266,13 +267,19 @@ function clampLimit(value: string | null) {
   return Math.min(Math.floor(parsed), MAX_RECEIPT_LIMIT);
 }
 
-function normalizeEmployeeSummary(value: any) {
+function buildEmployeeReceiptSummary(receipts: any[]) {
+  const activeReceipts = receipts.filter((receipt) => !["rejected", "void"].includes(String(receipt.status ?? "")));
+  const pendingReceipts = activeReceipts.filter((receipt) => !["paid", "settled", "claimed", "approved"].includes(String(receipt.status ?? "")));
+  const paidReceipts = activeReceipts.filter((receipt) => ["paid", "settled", "claimed", "approved"].includes(String(receipt.status ?? "")));
+  const submittedTotal = activeReceipts.reduce((sum, receipt) => sum + Number(receipt.total_amount ?? 0), 0);
+  const paidTotal = paidReceipts.reduce((sum, receipt) => sum + Number(receipt.reimbursed_amount ?? receipt.subsidy_amount ?? 0), 0);
+
   return {
-    submittedTotal: Number(value?.submittedTotal ?? 0),
-    paidTotal: Number(value?.paidTotal ?? 0),
-    unpaidTotal: Number(value?.unpaidTotal ?? 0),
-    pendingCount: Number(value?.pendingCount ?? 0),
-    pendingTotalAmount: Number(value?.pendingTotalAmount ?? 0),
-    pendingClaimableAmount: Number(value?.pendingClaimableAmount ?? 0)
+    submittedTotal,
+    paidTotal,
+    unpaidTotal: Math.max(0, submittedTotal - paidTotal),
+    pendingCount: pendingReceipts.length,
+    pendingTotalAmount: pendingReceipts.reduce((sum, receipt) => sum + Number(receipt.total_amount ?? 0), 0),
+    pendingClaimableAmount: pendingReceipts.reduce((sum, receipt) => sum + Number(receipt.subsidy_amount ?? 0), 0)
   };
 }

@@ -3,7 +3,6 @@
 import { Camera, KeyRound, LogOut, Menu, ReceiptText, Upload, UsersRound, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { calculateDailyClaimSubsidies } from "@/app/lib/calculations";
 import { DAILY_SUBSIDY_LIMIT, Department } from "@/app/lib/domain";
 import { createSupabaseBrowserClient } from "@/app/lib/supabase/client";
 import type { Allocation, Employee, Receipt, ReceiptAttachment } from "@/app/lib/types";
@@ -185,7 +184,7 @@ export default function EmployeeReceiptPage() {
       const nextReceipts = current.filter((receipt) => receipt.receipt_id !== receiptId);
       setAllocations((currentAllocations) => {
         const nextAllocations = currentAllocations.filter((allocation) => allocation.receipt_id !== receiptId);
-        setSummary(buildSummary(employee.employee_id, nextReceipts, nextAllocations));
+        setSummary(buildSummary(nextReceipts));
         return nextAllocations;
       });
       return nextReceipts;
@@ -274,7 +273,7 @@ export default function EmployeeReceiptPage() {
       const nextReceipts = sortReceipts([receipt, ...current.filter((item) => item.receipt_id !== receipt.receipt_id)]);
       setAllocations((currentAllocations) => {
         const nextAllocations = [...currentAllocations.filter((allocation) => allocation.receipt_id !== receipt.receipt_id), ...savedAllocations];
-        if (employee) setSummary(buildSummary(employee.employee_id, nextReceipts, nextAllocations));
+        if (employee) setSummary(buildSummary(nextReceipts));
         return nextAllocations;
       });
       return nextReceipts;
@@ -673,25 +672,13 @@ function sortReceipts(items: Receipt[]) {
   });
 }
 
-function buildSummary(employeeId: string, receipts: Receipt[], allocations: Allocation[]): Summary {
-  const ownAllocations = allocations.filter((allocation) => allocation.employee_id === employeeId);
+function buildSummary(receipts: Receipt[]): Summary {
   const paidReceiptIds = new Set(receipts.filter((receipt) => receipt.reimbursement_status === "paid").map((receipt) => receipt.receipt_id));
   const pendingReceipts = receipts.filter((receipt) => receipt.reimbursement_status !== "paid" && receipt.reimbursement_status !== "rejected");
-  const pendingReceiptIds = new Set(pendingReceipts.map((receipt) => receipt.receipt_id));
-  const allPendingClaims = ownAllocations
-    .filter((allocation) => pendingReceiptIds.has(allocation.receipt_id))
-    .map((allocation) => ({
-      id: allocation.allocation_id,
-      profileId: allocation.employee_id,
-      claimDate: allocation.date,
-      claimedAmount: allocation.amount,
-      createdAt: allocation.created_at
-    }));
-  const calculatedPendingSubsidies = calculateDailyClaimSubsidies(allPendingClaims);
   const submittedTotal = receipts.reduce((sum, receipt) => sum + Number(receipt.total_amount || 0), 0);
-  const paidTotal = ownAllocations
-    .filter((allocation) => paidReceiptIds.has(allocation.receipt_id))
-    .reduce((sum, allocation) => sum + Number(allocation.amount || 0), 0);
+  const paidTotal = receipts
+    .filter((receipt) => paidReceiptIds.has(receipt.receipt_id))
+    .reduce((sum, receipt) => sum + Number(receipt.reimbursed_amount || receipt.subsidy_amount || 0), 0);
 
   return {
     submittedTotal,
@@ -699,7 +686,7 @@ function buildSummary(employeeId: string, receipts: Receipt[], allocations: Allo
     unpaidTotal: Math.max(0, submittedTotal - paidTotal),
     pendingCount: pendingReceipts.length,
     pendingTotalAmount: pendingReceipts.reduce((sum, receipt) => sum + Number(receipt.total_amount || 0), 0),
-    pendingClaimableAmount: calculatedPendingSubsidies.reduce((sum, subsidy) => sum + subsidy.subsidyAmount, 0)
+    pendingClaimableAmount: pendingReceipts.reduce((sum, receipt) => sum + Number(receipt.subsidy_amount || 0), 0)
   };
 }
 
