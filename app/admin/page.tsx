@@ -53,7 +53,7 @@ export default function DepartmentAdminPage() {
   const [filters, setFilters] = useState({ start: "", end: "", employee: "", status: "", category: "" });
   const [committedFilters, setCommittedFilters] = useState({ start: "", end: "", employee: "", status: "", category: "" });
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
-  const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "" });
+  const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "", confirm_password: "" });
 
   const refresh = useCallback(async (nextTab: Tab = tab) => {
     const query = new URLSearchParams({ view: nextTab }).toString();
@@ -215,6 +215,10 @@ export default function DepartmentAdminPage() {
   async function changePassword(event: FormEvent) {
     event.preventDefault();
     setMessage("");
+    if (passwordForm.next_password !== passwordForm.confirm_password) {
+      setMessage("兩次密碼輸入不一致");
+      return;
+    }
     const response = await fetch("/api/employee/password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -225,7 +229,7 @@ export default function DepartmentAdminPage() {
       setMessage(body.error || "密碼更新失敗");
       return;
     }
-    setPasswordForm({ current_password: "", next_password: "" });
+    setPasswordForm({ current_password: "", next_password: "", confirm_password: "" });
     setPasswordModalOpen(false);
     setMessage("密碼已更新");
   }
@@ -395,11 +399,15 @@ export default function DepartmentAdminPage() {
             <form className="form-grid single" onSubmit={changePassword}>
               <label>
                 目前密碼
-                <input type="password" value={passwordForm.current_password} onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })} />
+                <input type="password" value={passwordForm.current_password} onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })} required />
               </label>
               <label>
                 新密碼
                 <input type="password" minLength={8} value={passwordForm.next_password} onChange={(event) => setPasswordForm({ ...passwordForm, next_password: event.target.value })} required />
+              </label>
+              <label>
+                確認新密碼
+                <input type="password" minLength={8} value={passwordForm.confirm_password} onChange={(event) => setPasswordForm({ ...passwordForm, confirm_password: event.target.value })} required />
               </label>
               <div className="form-actions">
                 <button type="button" className="ghost-btn" onClick={() => setPasswordModalOpen(false)}>

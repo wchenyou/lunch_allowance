@@ -42,7 +42,7 @@ export default function EmployeeReceiptPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 15;
-  const [passwordForm, setPasswordForm] = useState({ next_password: "", confirm_password: "" });
+  const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "", confirm_password: "" });
   
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
@@ -327,16 +327,16 @@ export default function EmployeeReceiptPage() {
     const response = await fetch("/api/employee/password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ next_password: passwordForm.next_password, intended_role: "employee" })
+      body: JSON.stringify({ current_password: passwordForm.current_password, next_password: passwordForm.next_password, intended_role: "employee" })
     });
     const body = await response.json();
     if (!response.ok) {
       setMessage(body.error || "密碼更新失敗");
       return;
     }
-    setPasswordForm({ next_password: "", confirm_password: "" });
-    setMessage("");
+    setPasswordForm({ current_password: "", next_password: "", confirm_password: "" });
     setPasswordModalOpen(false);
+    setMessage("密碼已更新，下次請使用新密碼登入");
   }
 
   function getDayOfWeek(dateString: string) {
@@ -634,6 +634,10 @@ export default function EmployeeReceiptPage() {
             </div>
             <form className="form-grid single" onSubmit={changePassword}>
               {message ? <p className="form-message">{message}</p> : null}
+              <label>
+                目前密碼
+                <input type="password" value={passwordForm.current_password} onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })} required />
+              </label>
               <label>
                 新密碼
                 <input type="password" minLength={8} value={passwordForm.next_password} onChange={(event) => setPasswordForm({ ...passwordForm, next_password: event.target.value })} required />

@@ -54,7 +54,7 @@ export default function SuperAdminPage() {
   const [savingAccount, setSavingAccount] = useState(false);
   const [savingDepartment, setSavingDepartment] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
-  const [passwordForm, setPasswordForm] = useState({ next_password: "", confirm_password: "" });
+  const [passwordForm, setPasswordForm] = useState({ current_password: "", next_password: "", confirm_password: "" });
   const [session, setSession] = useState<any>(null);
 
   const selectableDepartments = useMemo(() => visibleDepartments(departments).filter((department) => department.active), [departments]);
@@ -195,14 +195,14 @@ export default function SuperAdminPage() {
     const response = await fetch("/api/employee/password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ next_password: passwordForm.next_password, intended_role: "super_admin" })
+      body: JSON.stringify({ current_password: passwordForm.current_password, next_password: passwordForm.next_password, intended_role: "super_admin" })
     });
     const body = await response.json();
     if (!response.ok) {
       setMessage(body.error || "密碼更新失敗");
       return;
     }
-    setPasswordForm({ next_password: "", confirm_password: "" });
+    setPasswordForm({ current_password: "", next_password: "", confirm_password: "" });
     setPasswordModalOpen(false);
     setMessage("密碼已更新");
   }
@@ -605,6 +605,10 @@ export default function SuperAdminPage() {
               </button>
             </div>
             <form className="form-grid single" onSubmit={changePassword}>
+              <label>
+                目前密碼
+                <input type="password" value={passwordForm.current_password} onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })} required />
+              </label>
               <label>
                 新密碼
                 <input type="password" minLength={8} value={passwordForm.next_password} onChange={(event) => setPasswordForm({ ...passwordForm, next_password: event.target.value })} required />
