@@ -4,6 +4,11 @@ import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 
 const DEFAULT_RECEIPT_LIMIT = 200;
 const MAX_RECEIPT_LIMIT = 500;
+const DEPARTMENT_SELECT = "id, code, name, active, created_at, updated_at";
+const PROFILE_SELECT = "id, employee_no, display_name, email, phone, department_id, role, app_role, active, onboarded_at, created_at, updated_at";
+const RECEIPT_SELECT = "id, receipt_date, department_id, submitted_by, payer_profile_id, merchant, receipt_no, total_amount, claimed_amount, subsidy_amount, reimbursed_amount, status, note, metadata, created_at, updated_at";
+const CLAIM_SELECT = "id, receipt_id, profile_id, claimed_amount, subsidy_amount, reimbursed_amount, status, created_at, updated_at";
+const ATTACHMENT_SELECT = "id, receipt_id, object_path, created_at";
 
 export async function GET(request: Request) {
   const guard = await requireSession(["department_admin", "super_admin"]);
@@ -32,9 +37,9 @@ export async function GET(request: Request) {
     });
   }
 
-  const departmentQuery = supabase.from("departments").select("*").order("name", { ascending: true });
-  const profileQuery = supabase.from("profiles").select("*").order("display_name", { ascending: true });
-  const receiptSelect: string = employee ? "*, filter_claims:receipt_claims!inner(profile_id)" : "*";
+  const departmentQuery = supabase.from("departments").select(DEPARTMENT_SELECT).order("name", { ascending: true });
+  const profileQuery = supabase.from("profiles").select(PROFILE_SELECT).order("display_name", { ascending: true });
+  const receiptSelect: string = employee ? `${RECEIPT_SELECT}, filter_claims:receipt_claims!inner(profile_id)` : RECEIPT_SELECT;
   let receiptQuery = supabase
     .from("receipts")
     .select(receiptSelect)
@@ -75,8 +80,8 @@ export async function GET(request: Request) {
   const initialReceiptIds = scopedReceipts.map((receipt) => receipt.id);
   const shouldLoadAttachments = view === "receipts" || view === "stats";
   const [claims, attachments] = await Promise.all([
-    initialReceiptIds.length ? supabase.from("receipt_claims").select("*").in("receipt_id", initialReceiptIds) : Promise.resolve({ data: [], error: null }),
-    shouldLoadAttachments && initialReceiptIds.length ? supabase.from("receipt_attachments").select("*").in("receipt_id", initialReceiptIds) : Promise.resolve({ data: [], error: null })
+    initialReceiptIds.length ? supabase.from("receipt_claims").select(CLAIM_SELECT).in("receipt_id", initialReceiptIds) : Promise.resolve({ data: [], error: null }),
+    shouldLoadAttachments && initialReceiptIds.length ? supabase.from("receipt_attachments").select(ATTACHMENT_SELECT).in("receipt_id", initialReceiptIds) : Promise.resolve({ data: [], error: null })
   ]);
   const error = departments.error ?? profiles.error ?? receipts.error ?? summaryResult.error ?? claims.error ?? attachments.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

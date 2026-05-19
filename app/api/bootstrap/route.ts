@@ -7,6 +7,10 @@ import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 
 const DEFAULT_RECEIPT_LIMIT = 15;
 const MAX_RECEIPT_LIMIT = 30;
+const EMPLOYEE_PROFILE_SELECT = "id, display_name, employee_no, email, department_id, active, created_at, updated_at, departments!profiles_department_id_fkey(name)";
+const EMPLOYEE_RECEIPT_SELECT = "id, receipt_date, payer_profile_id, submitted_by, department_id, merchant, receipt_no, total_amount, claimed_amount, subsidy_amount, reimbursed_amount, status, note, metadata, created_at, updated_at";
+const EMPLOYEE_CLAIM_SELECT = "id, receipt_id, claim_date, profile_id, claimed_amount, note, created_at, updated_at";
+const EMPLOYEE_ATTACHMENT_SELECT = "id, receipt_id, bucket, object_path, content_type, size_bytes, created_at";
 
 export async function GET(request: Request) {
   const guard = await requireSession(["employee", "department_admin", "super_admin"]);
@@ -22,23 +26,24 @@ export async function GET(request: Request) {
   // ── 1. Fetch current user's profile (single row) ──────────────────────────
   const { data: profileData, error: profileError } = await supabase
     .from("profiles")
-    .select("*, departments!profiles_department_id_fkey(name)")
+    .select(EMPLOYEE_PROFILE_SELECT)
     .eq("id", currentProfileId)
     .single();
 
   if (profileError || !profileData) {
     return NextResponse.json({ error: "Employee not found" }, { status: 404 });
   }
+  const profile = profileData as any;
 
   const currentEmployee = {
-    employee_id: profileData.id,
-    name: profileData.display_name,
-    active: profileData.active,
-    note: [profileData.employee_no, profileData.email].filter(Boolean).join(" / "),
-    department_id: profileData.department_id,
-    department_name: profileData.departments?.name ?? null,
-    created_at: profileData.created_at,
-    updated_at: profileData.updated_at
+    employee_id: profile.id,
+    name: profile.display_name,
+    active: profile.active,
+    note: [profile.employee_no, profile.email].filter(Boolean).join(" / "),
+    department_id: profile.department_id,
+    department_name: profile.departments?.name ?? null,
+    created_at: profile.created_at,
+    updated_at: profile.updated_at
   };
 
   if (mode === "directory") {
@@ -56,7 +61,7 @@ export async function GET(request: Request) {
   // ── 2. Fetch only the current page of this user's receipts ────────────────
   const { data: receiptsRaw, error: receiptsError } = await supabase
     .from("receipts")
-    .select("*")
+    .select(EMPLOYEE_RECEIPT_SELECT)
     .or(`submitted_by.eq.${currentProfileId},payer_profile_id.eq.${currentProfileId}`)
     .order("receipt_date", { ascending: false })
     .order("created_at", { ascending: false })
@@ -93,7 +98,7 @@ export async function GET(request: Request) {
   const { data: claimsRaw, error: claimsError } = receiptIds.length
     ? await supabase
         .from("receipt_claims")
-        .select("*")
+        .select(EMPLOYEE_CLAIM_SELECT)
         .in("receipt_id", receiptIds)
         .order("claim_date", { ascending: false })
         .order("created_at", { ascending: true })
@@ -116,7 +121,7 @@ export async function GET(request: Request) {
   const { data: attachmentsRaw, error: attachmentsError } = receiptIds.length
     ? await supabase
         .from("receipt_attachments")
-        .select("*")
+        .select(EMPLOYEE_ATTACHMENT_SELECT)
         .in("receipt_id", receiptIds)
         .order("created_at", { ascending: true })
     : { data: [], error: null };
@@ -144,12 +149,11 @@ export async function GET(request: Request) {
   }
 
   // ── 5. Financial summary calculation ─────────────────────────────────────
-  const { data: summaryReceipts, error: summaryError } = await supabase
-    .from("receipts")
-    .select("total_amount, subsidy_amount, reimbursed_amount, status")
-    .or(`submitted_by.eq.${currentProfileId},payer_profile_id.eq.${currentProfileId}`);
+  const { data: summaryData, error: summaryError } = await supabase.rpc("employee_receipt_summary", {
+    target_profile_id: currentProfileId
+  });
   if (summaryError) return NextResponse.json({ error: summaryError.message }, { status: 500 });
-  const summary = buildEmployeeReceiptSummary(summaryReceipts ?? []);
+  const summary = normalizeEmployeeSummary(summaryData);
 
   return NextResponse.json({
     employees: [currentEmployee],
@@ -176,7 +180,7 @@ async function loadAllowedDirectory(
     if (session.role === "super_admin") {
       const { data: allProfiles } = await supabase
         .from("profiles")
-        .select("*, departments!profiles_department_id_fkey(name)")
+        .select(EMPLOYEE_PROFILE_SELECT)
         .eq("active", true)
         .order("display_name", { ascending: true });
       const { data: allDepts } = await supabase.from("departments").select("*").eq("active", true);
@@ -214,7 +218,7 @@ async function loadAllowedDirectory(
       const targetIdsArray = [...targetDeptIds];
       const [{ data: targetProfiles }, { data: targetDepts }] = await Promise.all([
         targetIdsArray.length
-          ? supabase.from("profiles").select("*, departments!profiles_department_id_fkey(name)")
+          ? supabase.from("profiles").select(EMPLOYEE_PROFILE_SELECT)
               .in("department_id", targetIdsArray).eq("active", true).eq("app_role", "employee").order("display_name", { ascending: true })
           : Promise.resolve({ data: [] }),
         targetIdsArray.length
@@ -233,7 +237,7 @@ async function loadAllowedDirectory(
       const targetDeptIds = session.departmentIds;
       const [{ data: targetProfiles }, { data: targetDepts }] = await Promise.all([
         targetDeptIds.length
-          ? supabase.from("profiles").select("*, departments!profiles_department_id_fkey(name)")
+          ? supabase.from("profiles").select(EMPLOYEE_PROFILE_SELECT)
               .in("department_id", targetDeptIds).eq("active", true).eq("app_role", "employee").order("display_name", { ascending: true })
           : Promise.resolve({ data: [] }),
         targetDeptIds.length
@@ -267,19 +271,13 @@ function clampLimit(value: string | null) {
   return Math.min(Math.floor(parsed), MAX_RECEIPT_LIMIT);
 }
 
-function buildEmployeeReceiptSummary(receipts: any[]) {
-  const activeReceipts = receipts.filter((receipt) => !["rejected", "void"].includes(String(receipt.status ?? "")));
-  const pendingReceipts = activeReceipts.filter((receipt) => !["paid", "settled", "claimed", "approved"].includes(String(receipt.status ?? "")));
-  const paidReceipts = activeReceipts.filter((receipt) => ["paid", "settled", "claimed", "approved"].includes(String(receipt.status ?? "")));
-  const submittedTotal = activeReceipts.reduce((sum, receipt) => sum + Number(receipt.total_amount ?? 0), 0);
-  const paidTotal = paidReceipts.reduce((sum, receipt) => sum + Number(receipt.reimbursed_amount ?? receipt.subsidy_amount ?? 0), 0);
-
+function normalizeEmployeeSummary(value: any) {
   return {
-    submittedTotal,
-    paidTotal,
-    unpaidTotal: Math.max(0, submittedTotal - paidTotal),
-    pendingCount: pendingReceipts.length,
-    pendingTotalAmount: pendingReceipts.reduce((sum, receipt) => sum + Number(receipt.total_amount ?? 0), 0),
-    pendingClaimableAmount: pendingReceipts.reduce((sum, receipt) => sum + Number(receipt.subsidy_amount ?? 0), 0)
+    submittedTotal: Number(value?.submittedTotal ?? 0),
+    paidTotal: Number(value?.paidTotal ?? 0),
+    unpaidTotal: Number(value?.unpaidTotal ?? 0),
+    pendingCount: Number(value?.pendingCount ?? 0),
+    pendingTotalAmount: Number(value?.pendingTotalAmount ?? 0),
+    pendingClaimableAmount: Number(value?.pendingClaimableAmount ?? 0)
   };
 }
