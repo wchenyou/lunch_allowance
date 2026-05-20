@@ -8,7 +8,7 @@ export async function GET() {
   }
 
   const supabase = createSupabaseAdminClient();
-  const { error } = await supabase.from("profiles").select("id", { count: "exact", head: true });
+  const { error } = await supabase.from("profiles").select("id").limit(1);
 
   if (error) {
     return NextResponse.json({ ok: false, mode: "supabase", error: error.message }, { status: 500 });

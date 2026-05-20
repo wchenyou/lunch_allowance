@@ -4,6 +4,7 @@ import { RECEIPT_IMAGE_BUCKET } from "@/app/lib/domain";
 import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 
 const MAX_ZIP_FILES = 200;
+const PHOTO_EXPORT_SELECT = "id, submitted_by, department_id, status, receipt_date, metadata, receipt_claims(profile_id), receipt_attachments(id, object_path)";
 
 export async function GET(request: Request) {
   const guard = await requireSession(["department_admin", "super_admin"]);
@@ -16,8 +17,8 @@ export async function GET(request: Request) {
   const category = url.searchParams.get("category") ?? "";
   const supabase = createSupabaseAdminClient();
   const receiptSelect: string = employee
-    ? "id, submitted_by, department_id, status, receipt_date, metadata, receipt_claims(profile_id), receipt_attachments(*), filter_claims:receipt_claims!inner(profile_id)"
-    : "id, submitted_by, department_id, status, receipt_date, metadata, receipt_claims(profile_id), receipt_attachments(*)";
+    ? `${PHOTO_EXPORT_SELECT}, filter_claims:receipt_claims!inner(profile_id)`
+    : PHOTO_EXPORT_SELECT;
   let query = supabase
     .from("receipts")
     .select(receiptSelect)

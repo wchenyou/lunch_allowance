@@ -28,6 +28,7 @@ type ReceiptRow = {
   metadata?: { applicant_name?: string; claimant_names?: string[]; category?: string };
 };
 type AdminSummary = { pendingApplicantCount: number; pendingReceiptCount: number; totalClaimedAmount: number; totalSubsidyAmount: number };
+type PayoutSummary = { employee_id: string; employee: Profile; actual_total: number; subsidy_total: number; receipt_count: number };
 type AdminScope = {
   departments: Department[];
   profiles: Profile[];
@@ -36,7 +37,9 @@ type AdminScope = {
   attachments: Attachment[];
   summary?: AdminSummary;
   limited?: boolean;
+  session?: any;
 };
+type EmployeeReceiptPayload = { receipts: ReceiptRow[]; claims: Claim[]; attachments: Attachment[] };
 
 const statusLabels: Record<string, string> = { submitted: "申請中", settled: "已放款", rejected: "退單" };
 
@@ -50,6 +53,9 @@ export default function DepartmentAdminPage() {
   const [loadedTabs, setLoadedTabs] = useState<Set<Tab>>(() => new Set(["receipts"]));
   const [message, setMessage] = useState("");
   const [activeEmployeeId, setActiveEmployeeId] = useState("");
+  const [payoutSummaries, setPayoutSummaries] = useState<PayoutSummary[]>([]);
+  const [activeEmployeeReceiptsData, setActiveEmployeeReceiptsData] = useState<EmployeeReceiptPayload>({ receipts: [], claims: [], attachments: [] });
+  const [activeEmployeeLoading, setActiveEmployeeLoading] = useState(false);
   const [filters, setFilters] = useState({ start: "", end: "", employee: "", status: "", category: "" });
   const [committedFilters, setCommittedFilters] = useState({ start: "", end: "", employee: "", status: "", category: "" });
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
@@ -57,13 +63,9 @@ export default function DepartmentAdminPage() {
 
   const refresh = useCallback(async (nextTab: Tab = tab) => {
     const query = new URLSearchParams({ view: nextTab }).toString();
-    const [scopeRes, sessionRes] = await Promise.all([
-      fetch(`/api/admin/scope?${query}`, { cache: "no-store" }),
-      fetch("/api/auth/session")
-    ]);
+    const scopeRes = await fetch(`/api/admin/scope?${query}`, { cache: "no-store" });
     const scopeBody = await scopeRes.json();
-    const sessionBody = await sessionRes.json();
-    
+
     if (!scopeRes.ok) {
       setMessage(scopeBody.error || "無法載入部門行政資料");
       return;
@@ -71,8 +73,8 @@ export default function DepartmentAdminPage() {
     mergeScope(scopeBody, nextTab);
     setLoadedTabs((current) => new Set([...current, nextTab]));
     setMessage(scopeBody.limited ? "目前顯示最近 200 筆單據；請到單據統計用條件查詢完整資料。" : "");
-    if (sessionRes.ok) {
-      setSession(sessionBody.session);
+    if (scopeBody.session) {
+      setSession(scopeBody.session);
     }
   }, [tab]);
 
@@ -80,15 +82,54 @@ export default function DepartmentAdminPage() {
     refresh();
   }, [refresh]);
 
+  const refreshPayouts = useCallback(async () => {
+    const response = await fetch("/api/admin/payouts", { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok) {
+      setMessage(body.error || "無法載入員工請款資料");
+      return;
+    }
+    setPayoutSummaries(body.payouts ?? []);
+    setScope((current) => ({
+      ...current,
+      departments: body.departments?.length ? body.departments : current.departments,
+      profiles: body.profiles?.length ? body.profiles : current.profiles
+    }));
+    if (body.session) setSession(body.session);
+    setLoadedTabs((current) => new Set([...current, "payouts"]));
+  }, []);
+
   useEffect(() => {
     if (tab !== "stats") {
       setHasSearched(false);
       setCommittedFilters({ start: "", end: "", employee: "", status: "", category: "" });
     }
     if (!loadedTabs.has(tab)) {
-      refresh(tab);
+      if (tab === "payouts") {
+        refreshPayouts();
+      } else {
+        refresh(tab);
+      }
     }
-  }, [loadedTabs, refresh, tab]);
+  }, [loadedTabs, refresh, refreshPayouts, tab]);
+
+  async function openEmployeePayout(employeeId: string) {
+    setActiveEmployeeId(employeeId);
+    setActiveEmployeeLoading(true);
+    setActiveEmployeeReceiptsData({ receipts: [], claims: [], attachments: [] });
+    const response = await fetch(`/api/admin/payouts/${employeeId}/receipts`, { cache: "no-store" });
+    const body = await response.json();
+    setActiveEmployeeLoading(false);
+    if (!response.ok) {
+      setMessage(body.error || "無法載入員工請款明細");
+      return;
+    }
+    setActiveEmployeeReceiptsData({
+      receipts: body.receipts ?? [],
+      claims: body.claims ?? [],
+      attachments: body.attachments ?? []
+    });
+  }
 
   async function searchStats() {
     const query = new URLSearchParams({ ...filters, mode: "stats", view: "stats", limit: "500" }).toString();
@@ -117,6 +158,8 @@ export default function DepartmentAdminPage() {
   const departmentsById = useMemo(() => new Map(scope.departments.map((department) => [department.id, department])), [scope.departments]);
   const claimsByReceipt = useMemo(() => groupBy(scope.claims, (claim) => claim.receipt_id), [scope.claims]);
   const attachmentsByReceipt = useMemo(() => groupBy(scope.attachments, (attachment) => attachment.receipt_id), [scope.attachments]);
+  const activeClaimsByReceipt = useMemo(() => groupBy(activeEmployeeReceiptsData.claims, (claim) => claim.receipt_id), [activeEmployeeReceiptsData.claims]);
+  const activeAttachmentsByReceipt = useMemo(() => groupBy(activeEmployeeReceiptsData.attachments, (attachment) => attachment.receipt_id), [activeEmployeeReceiptsData.attachments]);
   const employees = useMemo(() => scope.profiles.filter((profile) => (profile.app_role ?? profile.role) === "employee"), [scope.profiles]);
   const filteredReceipts = useMemo(
     () =>
@@ -128,27 +171,8 @@ export default function DepartmentAdminPage() {
         .filter((receipt) => !committedFilters.employee || receipt.submitted_by === committedFilters.employee || (claimsByReceipt.get(receipt.id) ?? []).some((claim) => claim.profile_id === committedFilters.employee)),
     [claimsByReceipt, committedFilters, scope.receipts]
   );
-  const employeeSummaries = useMemo(
-    () =>
-      employees.map((employee) => {
-        // Only count amounts for receipts where this employee is the actual submitter (applicant)
-        const submittedReceipts = scope.receipts.filter(r => r.submitted_by === employee.id && r.status === "submitted");
-        const actualTotal = submittedReceipts.reduce((sum, r) => sum + Number(r.total_amount || 0), 0);
-        
-        // Capped amount is the sum of subsidy_amount for all claims attached to those specific receipts
-        const receiptIds = new Set(submittedReceipts.map(r => r.id));
-        const subsidyTotal = scope.claims
-          .filter(c => receiptIds.has(c.receipt_id))
-          .reduce((sum, c) => sum + Number(c.subsidy_amount || 0), 0);
-
-        return { employee, actualTotal, subsidyTotal, receiptIds: [...receiptIds] };
-      }),
-    [employees, scope.claims, scope.receipts]
-  );
   const activeEmployee = employees.find((employee) => employee.id === activeEmployeeId);
-  const activeEmployeeReceipts = activeEmployee
-    ? scope.receipts.filter((receipt) => receipt.status === "submitted" && (claimsByReceipt.get(receipt.id) ?? []).some((claim) => claim.profile_id === activeEmployee.id))
-    : [];
+  const activeEmployeeReceipts = activeEmployeeReceiptsData.receipts;
 
   function mergeScope(nextScope: AdminScope, targetTab: Tab) {
     setScope((current) => ({
@@ -188,8 +212,10 @@ export default function DepartmentAdminPage() {
     setMessage(response.ok ? "單據狀態已更新" : body.error || "狀態更新失敗");
     if (response.ok) {
       setActiveEmployeeId("");
+      setActiveEmployeeReceiptsData({ receipts: [], claims: [], attachments: [] });
       applyReceiptMutation(body.receipts ?? [], body.claims ?? []);
       await refreshSummary();
+      if (loadedTabs.has("payouts")) await refreshPayouts();
     }
   }
 
@@ -293,11 +319,11 @@ export default function DepartmentAdminPage() {
           <section className="panel">
             <DataTable
               headers={["員工", "申請中金額", "可請款金額", ""]}
-              rows={employeeSummaries.map((summary) => [
+              rows={payoutSummaries.map((summary) => [
                 summary.employee.display_name,
-                money(summary.actualTotal),
-                money(summary.subsidyTotal),
-                <button className="ghost-btn compact" key={summary.employee.id} onClick={() => setActiveEmployeeId(summary.employee.id)}>請款管理</button>
+                money(summary.actual_total),
+                money(summary.subsidy_total),
+                <button className="ghost-btn compact" key={summary.employee.id} onClick={() => openEmployeePayout(summary.employee.id)}>請款管理</button>
               ])}
               empty="尚無員工資料"
             />
@@ -350,7 +376,7 @@ export default function DepartmentAdminPage() {
                   <span className="badge">請款筆數: {activeEmployeeReceipts.filter(r => r.status === "submitted").length} 筆</span>
                   <span className="badge">總收據金額: {money(activeEmployeeReceipts.reduce((sum, r) => sum + Number(r.total_amount || 0), 0))}</span>
                   <span className="badge primary badge-lg">可請款總額: {money(activeEmployeeReceipts.reduce((sum, r) => {
-                    const claims = claimsByReceipt.get(r.id) ?? [];
+                    const claims = activeClaimsByReceipt.get(r.id) ?? [];
                     return sum + claims.reduce((cSum, c) => cSum + Number(c.subsidy_amount || 0), 0);
                   }, 0))}</span>
                 </div>
@@ -371,16 +397,20 @@ export default function DepartmentAdminPage() {
                 <button className="icon-btn" title="關閉" onClick={() => setActiveEmployeeId("")}><X size={15} /></button>
               </div>
             </div>
-            <ReceiptTable
-              receipts={activeEmployeeReceipts}
-              claimsByReceipt={claimsByReceipt}
-              attachmentsByReceipt={attachmentsByReceipt}
-              profilesById={profilesById}
-              departmentsById={departmentsById}
-              onOpenAttachment={openAttachment}
-              onPaid={(id) => markReceipts([id], "settled")}
-              onRejected={(id) => markReceipts([id], "rejected")}
-            />
+            {activeEmployeeLoading ? (
+              <div className="empty">載入請款明細中...</div>
+            ) : (
+              <ReceiptTable
+                receipts={activeEmployeeReceipts}
+                claimsByReceipt={activeClaimsByReceipt}
+                attachmentsByReceipt={activeAttachmentsByReceipt}
+                profilesById={profilesById}
+                departmentsById={departmentsById}
+                onOpenAttachment={openAttachment}
+                onPaid={(id) => markReceipts([id], "settled")}
+                onRejected={(id) => markReceipts([id], "rejected")}
+              />
+            )}
           </div>
         </div>
       ) : null}

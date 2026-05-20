@@ -4,6 +4,8 @@ import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 const csvEscape = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
 const statusLabel = (status: string) => (status === "settled" ? "已放款" : status === "rejected" ? "退單" : "申請中");
 const moneyText = (value: number) => `$${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value || 0)}`;
+const RECEIPT_EXPORT_SELECT =
+  "id, receipt_date, department_id, merchant, total_amount, status, note, metadata, created_at, departments(name), receipt_claims(profile_id, claimed_amount, subsidy_amount, profiles(display_name)), receipt_attachments(object_path)";
 
 export async function GET(request: Request) {
   const guard = await requireSession(["department_admin", "super_admin"]);
@@ -16,8 +18,8 @@ export async function GET(request: Request) {
   const category = url.searchParams.get("category") ?? "";
   const supabase = createSupabaseAdminClient();
   const receiptSelect: string = employee
-    ? "*, departments(name), receipt_claims(*, profiles(display_name)), receipt_attachments(*), filter_claims:receipt_claims!inner(profile_id)"
-    : "*, departments(name), receipt_claims(*, profiles(display_name)), receipt_attachments(*)";
+    ? `${RECEIPT_EXPORT_SELECT}, filter_claims:receipt_claims!inner(profile_id)`
+    : RECEIPT_EXPORT_SELECT;
   let query = supabase
     .from("receipts")
     .select(receiptSelect)

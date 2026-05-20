@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { appRoles, toAppRole } from "@/app/lib/auth/roles";
+import { appRoles } from "@/app/lib/auth/roles";
 import { visibleDepartments } from "@/app/lib/departments";
 import type { AppRole } from "@/app/lib/domain";
 import { hasSupabaseConfig } from "@/app/lib/storage";
@@ -20,20 +20,15 @@ export async function GET(request: Request) {
   }
 
   const supabase = createSupabaseAdminClient();
-  const [departments, profiles] = await Promise.all([
+  const [departments, employeeDepartments] = await Promise.all([
     supabase.from("departments").select("id, name, active").eq("active", true).order("name", { ascending: true }),
-    supabase
-      .from("profiles")
-      .select("department_id, role, app_role")
-      .eq("active", true)
-      .is("login_disabled_at", null)
+    supabase.rpc("active_employee_department_ids")
   ]);
 
-  const error = departments.error ?? profiles.error;
+  const error = departments.error ?? employeeDepartments.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const filteredProfiles = (profiles.data ?? []).filter((profile) => toAppRole(profile.app_role ?? profile.role) === "employee");
-  const departmentIds = new Set(filteredProfiles.map((profile) => profile.department_id).filter(Boolean));
+  const departmentIds = new Set((employeeDepartments.data ?? []).map((row: { department_id: string | null }) => row.department_id).filter(Boolean));
 
   return NextResponse.json({
     departments: visibleDepartments(departments.data ?? []).filter((department) => departmentIds.has(department.id))

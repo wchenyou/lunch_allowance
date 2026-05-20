@@ -33,6 +33,7 @@ export async function GET(request: Request) {
       claims: [],
       attachments: [],
       summary: emptyAdminSummary(),
+      session,
       limited: false
     });
   }
@@ -107,6 +108,7 @@ export async function GET(request: Request) {
     claims: scopedClaims,
     attachments: scopedAttachments,
     summary: shouldLoadSummary ? normalizeAdminSummary(summaryResult.data) : undefined,
+    session,
     limited
   });
 }
