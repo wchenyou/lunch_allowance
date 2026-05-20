@@ -3,6 +3,7 @@ import { createSupabaseAdminClient } from "@/app/lib/supabase/admin";
 
 const csvEscape = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
 const statusLabel = (status: string) => (status === "settled" ? "已放款" : status === "rejected" ? "退單" : "申請中");
+const moneyText = (value: number) => `$${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value || 0)}`;
 
 export async function GET(request: Request) {
   const guard = await requireSession(["department_admin", "super_admin"]);
@@ -52,7 +53,7 @@ export async function GET(request: Request) {
         receipt.metadata?.category ?? "餐費補助",
         receipt.merchant ?? "",
         receipt.departments?.name ?? "",
-        claims.map((claim: any) => claim.profiles?.display_name ?? "").filter(Boolean).join("、"),
+        claims.map((claim: any) => `${claim.profiles?.display_name ?? ""}(${moneyText(Number(claim.claimed_amount ?? 0))})`).filter((value: string) => !value.startsWith("(")).join("、"),
         claims.length,
         Number(receipt.total_amount ?? 0),
         claims.reduce((sum: number, claim: any) => sum + Number(claim.subsidy_amount ?? 0), 0),

@@ -452,6 +452,7 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
       rows={sortedReceipts.map((receipt, index) => {
         const claims = claimsByReceipt.get(receipt.id) ?? [];
         const attachments = attachmentsByReceipt.get(receipt.id) ?? [];
+        const claimantNames = formatClaimantsWithAmounts(claims, profilesById);
         
         if (isStats) {
           return [
@@ -461,7 +462,7 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
             receipt.metadata?.category ?? "餐費補助",
             receipt.merchant ?? "-",
             departmentsById.get(receipt.department_id ?? "")?.name ?? "-",
-            claims.map((claim) => profilesById.get(claim.profile_id)?.display_name ?? "-").join("、"),
+            claimantNames,
             claims.length.toString(),
             money(Number(receipt.total_amount ?? 0)),
             money(claims.reduce((sum, claim) => sum + Number(claim.subsidy_amount || 0), 0)),
@@ -478,7 +479,7 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
           receipt.merchant ?? "-",
           departmentsById.get(receipt.department_id ?? "")?.name ?? "-",
           receipt.metadata?.applicant_name ?? profilesById.get(receipt.submitted_by)?.display_name ?? "-",
-          claims.map((claim) => profilesById.get(claim.profile_id)?.display_name ?? "-").join("、"),
+          claimantNames,
           claims.length.toString(),
           money(Number(receipt.total_amount ?? 0)),
           money(claims.reduce((sum, claim) => sum + Number(claim.subsidy_amount || 0), 0)),
@@ -494,6 +495,16 @@ function ReceiptTable({ receipts, claimsByReceipt, attachmentsByReceipt, profile
       empty="沒有符合條件的單據"
     />
   );
+}
+
+function formatClaimantsWithAmounts(claims: Claim[], profilesById: Map<string, Profile>) {
+  if (!claims.length) return "-";
+  return claims
+    .map((claim) => {
+      const name = profilesById.get(claim.profile_id)?.display_name ?? "-";
+      return `${name}(${money(Number(claim.claimed_amount ?? 0))})`;
+    })
+    .join("、");
 }
 
 function NavButton({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void }) {

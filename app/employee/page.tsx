@@ -19,7 +19,7 @@ export default function EmployeeReceiptPage() {
   const [allowedClaimants, setAllowedClaimants] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
-  const [, setAllocations] = useState<Allocation[]>([]);
+  const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [attachments, setAttachments] = useState<ReceiptAttachment[]>([]);
   const [signedUrlCache, setSignedUrlCache] = useState<Record<string, string>>({});
   const [summary, setSummary] = useState<Summary>({ submittedTotal: 0, paidTotal: 0, unpaidTotal: 0, pendingCount: 0, pendingTotalAmount: 0, pendingClaimableAmount: 0 });
@@ -137,6 +137,7 @@ export default function EmployeeReceiptPage() {
   const activeClaimants = useMemo(() => allowedClaimants.filter((claimant) => claimant.active), [allowedClaimants]);
   const selectedClaimIds = useMemo(() => new Set(claimInputs.map((claim) => claim.employee_id)), [claimInputs]);
   const receiptAttachments = useMemo(() => new Map(attachments.map((attachment) => [attachment.receipt_id, attachment])), [attachments]);
+  const allocationsByReceipt = useMemo(() => groupBy(allocations, (allocation) => allocation.receipt_id), [allocations]);
   const statusLabel = (status: Receipt["reimbursement_status"]) => (status === "paid" ? "已放款" : status === "rejected" ? "退單" : "申請中");
 
   async function openAttachment(attachment: ReceiptAttachment) {
@@ -412,7 +413,7 @@ export default function EmployeeReceiptPage() {
         <section className="password-panel" style={{ marginTop: 0 }}>
           <div className="mini-list">
             {receipts.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((receipt) => {
-              const claimNames = receipt.claimant_names?.length ? receipt.claimant_names.join("、") : employee?.name ?? "-";
+              const claimNames = formatClaimantsWithAmounts(receipt.claimant_names ?? [], allocationsByReceipt.get(receipt.receipt_id) ?? [], employee?.name ?? "-");
               const attachment = receiptAttachments.get(receipt.receipt_id);
               const merchant = receipt.merchant || "未填寫店家";
               const status = receipt.reimbursement_status;
@@ -688,6 +689,28 @@ function buildSummary(receipts: Receipt[]): Summary {
     pendingTotalAmount: pendingReceipts.reduce((sum, receipt) => sum + Number(receipt.total_amount || 0), 0),
     pendingClaimableAmount: pendingReceipts.reduce((sum, receipt) => sum + Number(receipt.subsidy_amount || 0), 0)
   };
+}
+
+function groupBy<T>(items: T[], keyFn: (item: T) => string) {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const key = keyFn(item);
+    const group = map.get(key) ?? [];
+    group.push(item);
+    map.set(key, group);
+  }
+  return map;
+}
+
+function formatClaimantsWithAmounts(names: string[], allocations: Allocation[], fallbackName: string) {
+  if (!names.length && !allocations.length) return fallbackName;
+  const displayNames = names.length ? names : [fallbackName];
+  return displayNames
+    .map((name, index) => {
+      const amount = allocations[index]?.amount;
+      return Number.isFinite(amount) ? `${name}(${money(Number(amount))})` : name;
+    })
+    .join("、");
 }
 
 async function compressImage(file: File) {
