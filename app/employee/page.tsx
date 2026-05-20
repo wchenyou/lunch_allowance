@@ -219,7 +219,15 @@ export default function EmployeeReceiptPage() {
       validClaims = [{ employee_id: employee.employee_id, amount: totalAmount }];
     }
 
-    const compressedImagePromise = compressImage(imageFile);
+    let compressedImage: File;
+    try {
+      compressedImage = await compressImage(imageFile);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "照片讀取失敗，請重新拍照或改選 JPG/PNG 圖片");
+      setIsSubmitting(false);
+      return;
+    }
+
     const response = await fetch("/api/employee/receipts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -236,7 +244,6 @@ export default function EmployeeReceiptPage() {
     });
     const body = await response.json();
     if (!response.ok) {
-      compressedImagePromise.catch(() => undefined);
       setMessage(body.error || "送出失敗");
       setIsSubmitting(false);
       return;
@@ -247,15 +254,14 @@ export default function EmployeeReceiptPage() {
     let savedAttachment: ReceiptAttachment | null = null;
     if (receipt?.receipt_id) {
       try {
-        const compressedImage = await compressedImagePromise;
         savedAttachment = await uploadReceiptImage(receipt.receipt_id, compressedImage);
       } catch (error) {
-        applySavedReceipt(receipt, savedAllocations, null);
-        setMessage(error instanceof Error ? error.message : "照片上傳失敗");
+        await deleteReceiptSilently(receipt.receipt_id);
+        setMessage(error instanceof Error ? `${error.message}，單據未送出` : "照片上傳失敗，單據未送出");
         setIsSubmitting(false);
         return;
       }
-    } else compressedImagePromise.catch(() => undefined);
+    }
     if (receipt) {
       applySavedReceipt(receipt, savedAllocations, savedAttachment);
       setPage(0);
@@ -267,6 +273,14 @@ export default function EmployeeReceiptPage() {
     setClaimInputs([{ employee_id: employee.employee_id, amount: "" }]);
     setUploadModalOpen(false);
     setIsSubmitting(false);
+  }
+
+  async function deleteReceiptSilently(receiptId: string) {
+    try {
+      await fetch(`/api/employee/receipts/${receiptId}`, { method: "DELETE" });
+    } catch {
+      // Best-effort rollback after an upload failure.
+    }
   }
 
   function applySavedReceipt(receipt: Receipt, savedAllocations: Allocation[], savedAttachment: ReceiptAttachment | null) {
@@ -714,15 +728,48 @@ function formatClaimantsWithAmounts(names: string[], allocations: Allocation[], 
 }
 
 async function compressImage(file: File) {
-  const bitmap = await createImageBitmap(file);
+  if (!file.type.startsWith("image/")) {
+    throw new Error("檔案不是圖片格式，請重新拍照或選擇圖片");
+  }
+
+  const image = await decodeImage(file);
   const maxWidth = 1600;
-  const scale = Math.min(1, maxWidth / bitmap.width);
+  const scale = Math.min(1, maxWidth / image.width);
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(bitmap.width * scale);
-  canvas.height = Math.round(bitmap.height * scale);
+  canvas.width = Math.round(image.width * scale);
+  canvas.height = Math.round(image.height * scale);
   const context = canvas.getContext("2d");
-  if (!context) return file;
-  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value ?? file), "image/jpeg", 0.78));
+  if (!context) throw new Error("瀏覽器無法處理這張照片，請重新拍照或改選 JPG/PNG 圖片");
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  if ("close" in image) image.close();
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.78));
+  if (!blob) throw new Error("照片壓縮失敗，請重新拍照或改選 JPG/PNG 圖片");
   return new File([blob], "receipt.jpg", { type: "image/jpeg" });
+}
+
+async function decodeImage(file: File) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      return await createImageBitmap(file);
+    } catch {
+      return decodeImageElement(file);
+    }
+  }
+  return decodeImageElement(file);
+}
+
+function decodeImageElement(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("照片無法讀取，請重新拍照或改選 JPG/PNG 圖片"));
+    };
+    image.src = url;
+  });
 }
