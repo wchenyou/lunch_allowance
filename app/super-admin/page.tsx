@@ -74,27 +74,13 @@ export default function SuperAdminPage() {
 
   async function refresh() {
     try {
-      const [departmentResponse, accountResponse, scopeResponse, sessionResponse] = await Promise.all([
-        fetch("/api/super-admin/departments", { cache: "no-store" }),
-        fetch("/api/super-admin/accounts", { cache: "no-store" }),
-        fetch("/api/super-admin/admin-scopes", { cache: "no-store" }),
-        fetch("/api/auth/session")
-      ]);
-      const [departmentBody, accountBody, scopeBody, sessionBody] = await Promise.all([
-        readJson(departmentResponse),
-        readJson(accountResponse),
-        readJson(scopeResponse),
-        readJson(sessionResponse)
-      ]);
-      if (!departmentResponse.ok) throw new Error(departmentBody.error || "部門資料載入失敗");
-      if (!accountResponse.ok) throw new Error(accountBody.error || "帳號資料載入失敗");
-      if (!scopeResponse.ok) throw new Error(scopeBody.error || "管理範圍載入失敗");
-      setDepartments(departmentBody.departments ?? []);
-      setProfiles(accountBody.profiles ?? []);
-      setDepartmentScopes(scopeBody.departmentScopes ?? []);
-      if (sessionBody.authenticated) {
-        setSession(sessionBody.session);
-      }
+      const response = await fetch("/api/super-admin/dashboard", { cache: "no-store" });
+      const body = await readJson(response);
+      if (!response.ok) throw new Error(body.error || "最高權限後台資料載入失敗");
+      setDepartments(body.departments ?? []);
+      setProfiles(body.profiles ?? []);
+      setDepartmentScopes(body.departmentScopes ?? []);
+      if (body.session) setSession(body.session);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "資料載入失敗");
     }
