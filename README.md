@@ -8,7 +8,8 @@
 ## 功能特色
 
 - 手機優先的員工上傳介面，支援拍照或從相簿選取收據
-- 單張收據多人分攤，並依每人每日補助上限自動計算可請款金額
+- 單張收據多人合單分攤，依每人每日補助上限自動計算可請款金額
+- 多人合單的請款人欄位會顯示每位請款人與申請金額，例如 `Aaron($180)、Iris($160)`
 - Supabase Storage 收據照片上傳、壓縮與路徑管理
 - 部門行政可審核、退單、批次請款
 - 依員工、日期與狀態查詢歷史單據
@@ -20,8 +21,14 @@
 | 角色 | 登入路徑 | 主要功能 |
 |------|----------|----------|
 | 最高管理員 | `/login/super-admin` | 管理部門、建立帳號、設定部門行政可管理的範圍 |
-| 部門行政 | `/login/admin` | 審核單據、退單、批次請款、匯出報表與照片 |
-| 員工 | `/login/employee` | 上傳收據、多人合單、查看個人請款紀錄與狀態 |
+| 部門行政 | `/login/admin` | 審核單據、退單、批次請款、查看多人合單請款明細、匯出報表與照片 |
+| 員工 | `/login/employee` | 上傳收據、多人合單、查看單據狀態與可請款總金額 |
+
+正式站預設入口：
+
+- 最高管理員：[https://lunch-subsidy-admin.vercel.app/login/super-admin](https://lunch-subsidy-admin.vercel.app/login/super-admin)
+- 部門行政：[https://lunch-subsidy-admin.vercel.app/login/admin](https://lunch-subsidy-admin.vercel.app/login/admin)
+- 員工：[https://lunch-subsidy-admin.vercel.app/login/employee](https://lunch-subsidy-admin.vercel.app/login/employee)
 
 ## 介面預覽
 
@@ -56,6 +63,14 @@
 上傳表單支援手機拍照、相簿選取與多人合單。
 
 ![員工端 - 上傳單據彈窗（手機版）](docs/screenshots/employee_upload_modal.png)
+
+## 多人合單規則
+
+- 每張收據可以指定多位請款人，並為每位請款人填寫各自申請金額。
+- 每位員工每日最多兩張單據，補助上限以「每位請款人」獨立計算。
+- 例如 4 位員工同一天合單，每人可補助上限為 150 元，整張單據最高可請款總額為 600 元。
+- 單據列表、請款管理彈窗、單據統計與 CSV 匯出都會在請款人後方顯示金額，例如 `Aaron($180)、Iris($160)`。
+- 部門行政可看到其管轄部門內的合單資料；若多個部門共用同一位行政，這些部門內員工可一起合單。
 
 ## 技術棧
 
@@ -173,7 +188,7 @@ docker run -d \
 | `profiles` | 帳號、角色、員工編號與基本資料 |
 | `departments` | 部門主檔 |
 | `receipts` | 收據主檔 |
-| `receipt_claims` | 收據分攤與請款明細 |
+| `receipt_claims` | 收據分攤與請款明細，每位請款人各一筆 claim |
 | `receipt_attachments` | 收據附件路徑 |
 | `department_admin_departments` | 部門行政可管理的部門範圍 |
 | `profile_credentials` | 自訂密碼登入憑證 |
@@ -192,6 +207,14 @@ docker run -d \
 本專案採用 [MIT License](LICENSE) 開源授權。
 
 ## Changelog
+
+### v1.2.0 (2026-05-20)
+
+- 新增多人合單請款人金額顯示，例如 `Aaron($180)、Iris($160)`
+- 單據列表、請款管理彈窗、單據統計與 CSV 匯出同步顯示請款人金額
+- 修正多人合單可請款總額，改為加總每位請款人的補助金額
+- 優化員工與行政後台資料載入，摘要改由資料庫端計算並減少不必要欄位回傳
+- 強化員工、部門行政與最高管理員的改密碼流程，需驗證目前密碼
 
 ### v1.1.0 (2026-05-13)
 
