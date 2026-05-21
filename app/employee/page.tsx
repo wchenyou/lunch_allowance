@@ -427,7 +427,12 @@ export default function EmployeeReceiptPage() {
         <section className="password-panel" style={{ marginTop: 0 }}>
           <div className="mini-list">
             {receipts.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((receipt) => {
-              const claimNames = formatClaimantsWithAmounts(receipt.claimant_names ?? [], allocationsByReceipt.get(receipt.receipt_id) ?? [], employee?.name ?? "-");
+              const claimNames = formatClaimantsWithAmounts(
+                receipt.claimant_names ?? [],
+                receipt.claimant_ids ?? [],
+                allocationsByReceipt.get(receipt.receipt_id) ?? [],
+                employee?.name ?? "-"
+              );
               const attachment = receiptAttachments.get(receipt.receipt_id);
               const merchant = receipt.merchant || "未填寫店家";
               const status = receipt.reimbursement_status;
@@ -716,8 +721,19 @@ function groupBy<T>(items: T[], keyFn: (item: T) => string) {
   return map;
 }
 
-function formatClaimantsWithAmounts(names: string[], allocations: Allocation[], fallbackName: string) {
+function formatClaimantsWithAmounts(names: string[], claimantIds: string[], allocations: Allocation[], fallbackName: string) {
   if (!names.length && !allocations.length) return fallbackName;
+  const amountsByEmployeeId = new Map(allocations.map((allocation) => [allocation.employee_id, allocation.amount]));
+
+  if (names.length && claimantIds.length === names.length) {
+    return names
+      .map((name, index) => {
+        const amount = amountsByEmployeeId.get(claimantIds[index]);
+        return Number.isFinite(amount) ? `${name}(${money(Number(amount))})` : name;
+      })
+      .join("、");
+  }
+
   const displayNames = names.length ? names : [fallbackName];
   return displayNames
     .map((name, index) => {

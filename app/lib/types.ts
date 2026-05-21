@@ -19,6 +19,7 @@ export type Receipt = {
   department_id?: string | null;
   applicant_name?: string;
   claimant_names?: string[];
+  claimant_ids?: string[];
   merchant: string;
   total_amount: number;
   claimed_amount?: number;

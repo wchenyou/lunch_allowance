@@ -79,6 +79,7 @@ export async function GET(request: Request) {
     department_id: r.department_id,
     applicant_name: r.metadata?.applicant_name,
     claimant_names: Array.isArray(r.metadata?.claimant_names) ? r.metadata.claimant_names : [],
+    claimant_ids: Array.isArray(r.metadata?.claimant_ids) ? r.metadata.claimant_ids : [],
     merchant: r.merchant ?? "",
     total_amount: Number(r.total_amount ?? 0),
     claimed_amount: Number(r.claimed_amount ?? 0),

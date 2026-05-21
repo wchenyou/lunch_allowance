@@ -51,6 +51,7 @@ const toReceipt = (receipt: any): Receipt => ({
   department_id: receipt.department_id,
   applicant_name: receipt.metadata?.applicant_name,
   claimant_names: Array.isArray(receipt.metadata?.claimant_names) ? receipt.metadata.claimant_names : [],
+  claimant_ids: Array.isArray(receipt.metadata?.claimant_ids) ? receipt.metadata.claimant_ids : [],
   merchant: receipt.merchant ?? "",
   total_amount: Number(receipt.total_amount ?? 0),
   claimed_amount: Number(receipt.claimed_amount ?? 0),
